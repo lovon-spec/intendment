@@ -1,6 +1,6 @@
 # Insertion study: Intendment between Polymarket and UMA's Optimistic Oracle
 
-Companion to `intendment-design-v0.7.md`, section 5, stage 4. One page, written against the public contracts on 2026-09-02 and rebased on 2026-09-04 to fix the callback timeline, which the v0.6 review found self-contradictory. Facts carry a source; judgments are marked as such.
+Companion to `intendment-design-v0.8.md`, section 5, stage 4. One page, written against the public contracts on 2026-09-02 and rebased on 2026-09-04 to fix the callback timeline, which the v0.6 review found self-contradictory. Facts carry a source; judgments are marked as such.
 
 ## How Polymarket resolves a market today
 
@@ -32,9 +32,13 @@ Two consequences for any settlement layer. The adapter cannot intercept a disput
 
 **Unsettled at the deadline.** The front forwards the case to the real OO: it requests a price for the same ancillary data, proposes the disputed price from the proposer's escrowed bond, and disputes it from the disputer's escrowed bond, and in the same transaction calls the adapter's `priceDisputed`, so the adapter resets as it does today. UMA's vote resolves the forwarded request exactly as today; the front receives the settlement as requester and credits the real proposer and disputer according to the outcome, claimable rather than pushed (design S15). Voters see the same ancillary data.
 
-**What Polymarket gains.** Markets with a wrong early proposal, which is the common case when bots race to propose, resolve in hours instead of days; here the deadweight the layer removes is latency rather than fees, which is the other half of the thesis. UMA's vote sees only genuine disagreements, which also means fewer of the public resolution fights. Nothing changes for genuine disputes.
+**What Polymarket gains.** Markets with a wrong early proposal, a case the venue can count from its own resolution history, resolve in hours instead of days; here the deadweight the layer removes is latency rather than fees, which is the other half of the thesis. UMA's vote sees only genuine disagreements, which also means fewer of the public resolution fights. Nothing changes for genuine disputes.
 
 **What UMA sees.** Its Store is paid on every concession as it would be on a vote, and the DVM's caseload drops only by the cases nobody wanted to argue. The revenue argument that makes this adversarial for UMA in the abstract is weakened by keeping the oracle's share intact; whether UMA sees it that way is a question for them, but nothing here needs their consent.
+
+**Bounds on repeated concessions.** Without a bound, a proposer could propose, be disputed, concede and propose again for as long as the Store fee is worth paying, and for a market of size the fee is nothing. Two bounds, both per question: `MAX_CONCESSIONS`, after which the next dispute forwards without a window, and an absolute deadline after the market's end time, after which every dispute forwards. Both keep the property that a wrong proposal does not consume the adapter's one reset, and neither lets resolution be delayed for longer than the bounds say.
+
+**Reentrancy of the callback.** When the front forwards and calls `priceDisputed`, the adapter's reset calls straight back into the front: `requestPrice`, `setEventBased`, `setCallbacks`, and possibly `setBond` and `setCustomLiveness`, all inside the forwarding transaction. The front is therefore built for that sequence: request creation must be callable during forwarding, and a single global re-entrancy guard around both would deadlock the reset. One trace in the front's test plan replays exactly this call chain.
 
 **Sybil check.** A proposer who disputes their own proposal and concedes pays the oracle's share of the bond to the Store, so the loop is not free; that is the non-party cost the design's S4 says a settlement layer cannot supply by itself, supplied here by UMA's own fee split rather than by a rule of ours.
 
