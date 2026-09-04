@@ -1,0 +1,282 @@
+# IntendmentArbitrator: machine-readable state machine.
+# Source of truth for the transition table in intendment-arbitrator-state-machine.md
+# (rendered by render.py; `render.py check` fails when the two drift) and the seed
+# for property-test fixtures. Prose, rationale and host profiles live in the .md.
+spec: IntendmentArbitrator state machine
+version: "0.3"
+date: 2026-09-04
+normative_for: ../docs/intendment-design-v0.7.md, stage 1 (1a and 1b)
+
+symbols:
+  q: the epoch quote; the escrow (`fee`) of every case in the epoch; F_A = F_B = q
+  c: the real arbitrator K's cost at the moment of forwarding
+  x: a fee share, the wrapper's only price unit, 0 <= x <= q; the requester's net loss on a concession is D + x
+  W: the window; deadline = createdAt + W
+  G: the funding period after the deadline; fundingEnd = deadline + G
+  V: the minimum validity of a bid; a bid is live while now < bidValidUntil, so none is live at the deadline
+  earmark: the part of the reserve set aside for one case at creation, min(maxCost - q, free reserve)
+  free: the reserve balance not escrowed, earmarked, credited or claimable
+  credit: money stored for one case by funders during the funding period
+  covered(id): c <= fee + earmark + free + credit, evaluated live
+
+states:
+  - id: Unbound
+    meaning: the host has called createDispute; the request kind and parties are not yet known
+  - id: Open
+    meaning: a registration request under challenge; settlement open
+  - id: Forwardable
+    meaning: a removal request under challenge; no settlement, waiting to be forwarded
+  - id: Forwarded
+    meaning: the dispute exists on K; the wrapper passes rulings and appeals through
+  - id: Conceded
+    meaning: terminal; the requester conceded; the host received the challenger-wins ruling
+  - id: Lapsed
+    meaning: terminal; the emergency path; the host received the refusal ruling
+
+transitions:
+  - id: T1
+    move: createDispute(choices, extraData) payable
+    from: []
+    to: [Unbound]
+    who: the host, fixed at deployment
+    stage: 1a
+    pre:
+      - msg.sender == HOST
+      - the envelope decodes to a registered epoch and msg.value == its quote
+      - never conditioned on the reserve
+    money:
+      - escrow fee = msg.value
+      - earmark = min(maxCost - q, free); UnderInsured if short
+    events: [CaseOpened]
+
+  - id: T2
+    move: bind(id)
+    from: [Unbound]
+    to: [Open, Forwardable]
+    who: anyone; implied by the first party move
+    stage: 1a
+    pre:
+      - the host has stored its dispute mapping for id
+    money: []
+    events: [CaseBound]
+
+  - id: T3
+    move: forward(id)
+    from: [Forwardable]
+    to: [Forwarded]
+    who: anyone; the challenger's interest
+    stage: 1a
+    pre:
+      - covered(id)
+    money:
+      - c to K from fee, then earmark, then free, then credit
+      - fee - c, if positive, to free; unused earmark to free; unused credit to its funders' claimable
+    events: [Escalated]
+
+  - id: T4
+    move: setAsk(id, x)
+    from: [Open]
+    to: [Open, Conceded]
+    who: challenger
+    stage: 1b
+    pre:
+      - now < deadline
+      - first call 0 <= x <= q; later calls x < ask
+    money:
+      - none; if a live bid >= x exists, executes T7 at the bid
+    events: [AskSet]
+
+  - id: T5
+    move: concede(id, maxShare)
+    from: [Open]
+    to: [Conceded]
+    who: requester
+    stage: 1a
+    pre:
+      - ask <= maxShare
+    money:
+      - claimable A += q - ask; claimable B += ask; earmark to free
+      - then host.rule(id, CHALLENGER_WINS)
+    events: [Settled]
+
+  - id: T6
+    move: bid(id, x, validUntil)
+    from: [Open]
+    to: [Open, Conceded]
+    who: requester
+    stage: 1b
+    pre:
+      - now < deadline
+      - x > highest bid so far; x <= q
+      - validUntil >= now + V; validUntil <= deadline
+    money:
+      - none; if x >= ask, executes T5 at the ask
+    events: [BidPosted]
+
+  - id: T7
+    move: acceptBid(id, minShare)
+    from: [Open]
+    to: [Conceded]
+    who: challenger
+    stage: 1b
+    pre:
+      - bid live; bid >= minShare
+    money:
+      - claimable A += q - bid; claimable B += bid; earmark to free
+      - then host.rule(id, CHALLENGER_WINS)
+    events: [Settled]
+
+  - id: T8
+    move: escalate(id)
+    from: [Open]
+    to: [Forwarded]
+    who: requester
+    stage: 1a
+    pre:
+      - no live bid
+      - covered(id)
+    money:
+      - as T3
+    events: [Escalated]
+
+  - id: T9
+    move: escalate(id)
+    from: [Open]
+    to: [Forwarded]
+    who: anyone, the challenger included
+    stage: 1a
+    pre:
+      - now >= deadline, so no offer is live
+      - covered(id)
+    money:
+      - as T3
+    events: [Escalated]
+
+  - id: T10
+    move: fund(id) payable
+    from: [Open, Forwardable]
+    to: [Open, Forwardable]
+    who: anyone
+    stage: 1a
+    pre:
+      - now < fundingEnd
+    money:
+      - credit += msg.value, recorded per funder
+    events: [Funded]
+
+  - id: T11
+    move: lapse(id)
+    from: [Open, Forwardable]
+    to: [Lapsed]
+    who: anyone
+    stage: 1a
+    pre:
+      - now >= fundingEnd
+      - not covered(id)
+    money:
+      - claimable B += q; each funder's claimable += its credit; earmark to free
+      - then host.rule(id, REFUSE)
+    events: [Lapsed]
+
+  - id: T12
+    move: rule(kDisputeID, ruling)
+    from: [Forwarded]
+    to: [Forwarded]
+    who: K only
+    stage: 1a
+    pre:
+      - at most once per K ruling
+    money:
+      - none held; host.rule(id, ruling)
+    events: [Ruling]
+
+  - id: T13
+    move: appeal(id, extraData) payable
+    from: [Forwarded]
+    to: [Forwarded]
+    who: anyone, as on K; the host's appeal crowdfunding
+    stage: 1a
+    pre:
+      - K's appeal period open
+    money:
+      - msg.value to K.appeal(kDisputeID, epoch real extra data) in the same transaction
+    events: []
+
+  - id: T14
+    move: claim(to)
+    from: [Unbound, Open, Forwardable, Forwarded, Conceded, Lapsed]
+    to: [Unbound, Open, Forwardable, Forwarded, Conceded, Lapsed]
+    who: any creditor, for its own claimable balance
+    stage: 1a
+    pre:
+      - claimable[msg.sender] > 0
+    money:
+      - claimable[msg.sender] to `to`; the only value transfer to a party in the contract
+    events: [Claimed]
+
+reserve_operations:
+  - id: G1
+    move: registerEpoch(realExtraData, marginBps, maxCost)
+    who: governor
+    pre:
+      - marginBps <= MAX_MARGIN_BPS
+      - maxCost >= quote
+    effect:
+      - quote = K.arbitrationCost(realExtraData) * (10000 + marginBps) / 10000, fixed forever
+      - emits the epoch's MetaEvidence pair
+    events: [EpochRegistered, MetaEvidence]
+  - id: G2
+    move: fundReserve() payable
+    who: anyone
+    pre: []
+    effect:
+      - free += msg.value
+    events: [ReserveFunded]
+  - id: G3
+    move: withdrawReserve(amount, to)
+    who: governor
+    pre:
+      - no case in Unbound, Open, Forwardable
+      - announced RESERVE_TIMELOCK earlier
+      - amount <= free
+    effect:
+      - free -= amount; paid to `to`
+    events: [ReserveWithdrawn]
+
+invariants:
+  - id: I1
+    name: conservation
+    text: balance == sum of open fees + sum of earmarks + sum of case credits + sum of claimable + free, after every transition
+  - id: I2
+    name: one-time finalization
+    text: exactly one of T3, T5, T7, T8, T9, T11 executes per case; T12 at most once per K ruling
+  - id: I3
+    name: quote stability
+    text: F_A == F_B == q for every case of an epoch; a quote never changes after registration
+  - id: I4
+    name: no holdup
+    text: the requester can always execute T5 at the current ask before forwarding; the ask is set at most once upward and then only falls
+  - id: I5
+    name: case-level offer binding
+    text: a live bid blocks T8; no offer is live at or after the deadline; T9 needs no offer check because none can exist
+  - id: I6
+    name: passivity
+    text: a silent challenger is conceded to at x = 0; a silent requester reaches court at the deadline through T9; a silent removal is forwarded by anyone
+  - id: I7
+    name: deposit neutrality
+    text: the wrapper never reads, holds or moves a deposit; its prices are fee shares
+  - id: I8
+    name: emergency isolation
+    text: T11 is unreachable while covered(id); an insured case is covered for every c <= maxCost
+  - id: I9
+    name: failure-safe payouts
+    text: no transition other than T14 transfers value to a party; a reverting receiver cannot block any transition
+  - id: I10
+    name: no refusal of challenges
+    text: T1 reverts only for a wrong sender, an unregistered epoch or a wrong value, never for the state of the reserve
+  - id: I11
+    name: fixed price
+    text: the challenger's economic fee on every forwarded case is q; the reserve absorbs q - c in either direction
+  - id: I12
+    name: exclusivity at fundingEnd
+    text: for now >= fundingEnd, exactly one of the escalation transitions (T3, T8, T9) or T11 has a satisfiable precondition at any instant, since they test opposite values of covered(id)
