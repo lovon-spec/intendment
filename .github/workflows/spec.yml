@@ -1,0 +1,19 @@
+name: specification data
+
+on:
+  push:
+    paths: ["spec/**", ".github/workflows/spec.yml"]
+  pull_request:
+    paths: ["spec/**", ".github/workflows/spec.yml"]
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install pyyaml
+      - run: python3 spec/render.py validate
+      - run: python3 spec/render.py check spec/intendment-arbitrator-state-machine.md

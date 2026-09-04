@@ -1,23 +1,52 @@
-# IntendmentArbitrator: machine-readable state machine.
-# Source of truth for the transition table in intendment-arbitrator-state-machine.md
-# (rendered by render.py; `render.py check` fails when the two drift) and the seed
-# for property-test fixtures. Prose, rationale and host profiles live in the .md.
+# IntendmentArbitrator: structured specification data.
+# Source for the transition, reserve-operation and invariant tables in
+# intendment-arbitrator-state-machine.md (rendered by render.py; `render.py check`
+# fails when the two drift; `render.py validate` checks the data itself) and the
+# seed for property-test fixtures (`render.py fixtures`). Prose, rationale,
+# modes and host profiles live in the .md. Not yet an executable model.
 spec: IntendmentArbitrator state machine
-version: "0.3"
+version: "0.4"
 date: 2026-09-04
-normative_for: ../docs/intendment-design-v0.7.md, stage 1 (1a and 1b)
+normative_for: ../docs/intendment-design-v0.8.md, stage 1 (1a and 1b)
 
 symbols:
   q: the epoch quote; the escrow (`fee`) of every case in the epoch; F_A = F_B = q
   c: the real arbitrator K's cost at the moment of forwarding
-  x: a fee share, the wrapper's only price unit, 0 <= x <= q; the requester's net loss on a concession is D + x
+  pi: the capacity premium, q * premiumBps / 10000, retained by the pool on every settled case; zero in the pilot
+  x: a fee share, the wrapper's only price unit, 0 <= x <= q - pi; the requester's net loss on a concession is D + pi + x
   W: the window; deadline = createdAt + W
   G: the funding period after the deadline; fundingEnd = deadline + G
   V: the minimum validity of a bid; a bid is live while now < bidValidUntil, so none is live at the deadline
-  earmark: the part of the reserve set aside for one case at creation, min(maxCost - q, free reserve)
-  free: the reserve balance not escrowed, earmarked, credited or claimable
-  credit: money stored for one case by funders during the funding period
-  covered(id): c <= fee + earmark + free + credit, evaluated live
+  earmark: the part of the reserve set aside for one case at creation, min(maxCost - q, free)
+  reserve: principal + surplus, the wrapper's balance beyond fees, unclaimed funding and claimable credits
+  free: reserve minus the sum of earmarks
+  funding: totalFunding of a case, stored by funders during the funding period; fundingUsed is what forwarding consumed
+  refundableFraction: (totalFunding - fundingUsed) / totalFunding, stored once at the case's end; 1 on lapse or concession
+  covered(id): c <= fee + earmark + free + (totalFunding - fundingUsed), evaluated live
+  resolverFailed(id): firstForwardFailure != 0 and now >= firstForwardFailure + RESOLVER_GRACE
+
+events:
+  - EpochRegistered
+  - MetaEvidence
+  - CaseOpened
+  - UnderInsured
+  - CaseBound
+  - AskSet
+  - BidPosted
+  - Settled
+  - Escalated
+  - ForwardFailed
+  - Funded
+  - FundingClaimed
+  - Lapsed
+  - RulingRelayed
+  - Claimed
+  - ReserveFunded
+  - Deactivated
+  - WithdrawalAnnounced
+  - WithdrawalCancelled
+  - PrincipalWithdrawn
+  - SurplusMigrated
 
 states:
   - id: Unbound
@@ -46,8 +75,8 @@ transitions:
       - never conditioned on the reserve
     money:
       - escrow fee = msg.value
-      - earmark = min(maxCost - q, free); UnderInsured if short
-    events: [CaseOpened]
+      - earmark = min(maxCost - q, free)
+    events: [CaseOpened, "UnderInsured?"]
 
   - id: T2
     move: bind(id)
@@ -64,14 +93,15 @@ transitions:
     move: forward(id)
     from: [Forwardable]
     to: [Forwarded]
-    who: anyone; the challenger's interest
+    who: anyone; the removal requester's interest; a router bundles it with the challenge
     stage: 1a
     pre:
       - covered(id)
     money:
-      - c to K from fee, then earmark, then free, then credit
-      - fee - c, if positive, to free; unused earmark to free; unused credit to its funders' claimable
-    events: [Escalated]
+      - c to K from fee, then earmark, then free, then funding; fundingUsed and refundableFraction recorded
+      - fee - c, if positive, to surplus; unused earmark to free
+      - if K reverts, nothing moves and firstForwardFailure is recorded
+    events: [Escalated, "ForwardFailed?"]
 
   - id: T4
     move: setAsk(id, x)
@@ -81,10 +111,10 @@ transitions:
     stage: 1b
     pre:
       - now < deadline
-      - first call 0 <= x <= q; later calls x < ask
+      - first call 0 <= x <= q - pi; later calls x < ask
     money:
       - none; if a live bid >= x exists, executes T7 at the bid
-    events: [AskSet]
+    events: [AskSet, "Settled?"]
 
   - id: T5
     move: concede(id, maxShare)
@@ -95,7 +125,7 @@ transitions:
     pre:
       - ask <= maxShare
     money:
-      - claimable A += q - ask; claimable B += ask; earmark to free
+      - claimable A += q - pi - ask; claimable B += ask; surplus += pi; earmark to free; refundableFraction = 1
       - then host.rule(id, CHALLENGER_WINS)
     events: [Settled]
 
@@ -107,11 +137,11 @@ transitions:
     stage: 1b
     pre:
       - now < deadline
-      - x > highest bid so far; x <= q
+      - x > highest bid so far; x <= q - pi
       - validUntil >= now + V; validUntil <= deadline
     money:
       - none; if x >= ask, executes T5 at the ask
-    events: [BidPosted]
+    events: [BidPosted, "Settled?"]
 
   - id: T7
     move: acceptBid(id, minShare)
@@ -122,7 +152,7 @@ transitions:
     pre:
       - bid live; bid >= minShare
     money:
-      - claimable A += q - bid; claimable B += bid; earmark to free
+      - claimable A += q - pi - bid; claimable B += bid; surplus += pi; earmark to free; refundableFraction = 1
       - then host.rule(id, CHALLENGER_WINS)
     events: [Settled]
 
@@ -133,11 +163,12 @@ transitions:
     who: requester
     stage: 1a
     pre:
+      - now < deadline
       - no live bid
       - covered(id)
     money:
       - as T3
-    events: [Escalated]
+    events: [Escalated, "ForwardFailed?"]
 
   - id: T9
     move: escalate(id)
@@ -150,7 +181,7 @@ transitions:
       - covered(id)
     money:
       - as T3
-    events: [Escalated]
+    events: [Escalated, "ForwardFailed?"]
 
   - id: T10
     move: fund(id) payable
@@ -161,7 +192,7 @@ transitions:
     pre:
       - now < fundingEnd
     money:
-      - credit += msg.value, recorded per funder
+      - totalFunding += msg.value; contribution[msg.sender] += msg.value
     events: [Funded]
 
   - id: T11
@@ -172,9 +203,9 @@ transitions:
     stage: 1a
     pre:
       - now >= fundingEnd
-      - not covered(id)
+      - not covered(id), or resolverFailed(id)
     money:
-      - claimable B += q; each funder's claimable += its credit; earmark to free
+      - claimable B += q; refundableFraction = 1; earmark to free
       - then host.rule(id, REFUSE)
     events: [Lapsed]
 
@@ -188,15 +219,16 @@ transitions:
       - at most once per K ruling
     money:
       - none held; host.rule(id, ruling)
-    events: [Ruling]
+    events: [RulingRelayed]
 
   - id: T13
     move: appeal(id, extraData) payable
     from: [Forwarded]
     to: [Forwarded]
-    who: anyone, as on K; the host's appeal crowdfunding
+    who: the host only, from its own appeal crowdfunding
     stage: 1a
     pre:
+      - msg.sender == HOST
       - K's appeal period open
     money:
       - msg.value to K.appeal(kDisputeID, epoch real extra data) in the same transaction
@@ -214,15 +246,27 @@ transitions:
       - claimable[msg.sender] to `to`; the only value transfer to a party in the contract
     events: [Claimed]
 
+  - id: T15
+    move: claimFunding(id)
+    from: [Forwarded, Conceded, Lapsed]
+    to: [Forwarded, Conceded, Lapsed]
+    who: a funder of the case, once
+    stage: 1a
+    pre:
+      - contribution[msg.sender] > 0 and not yet claimed
+    money:
+      - claimable[msg.sender] += contribution * refundableFraction; rounding dust stays in surplus
+    events: [FundingClaimed]
+
 reserve_operations:
   - id: G1
-    move: registerEpoch(realExtraData, marginBps, maxCost)
-    who: governor
+    move: registerEpoch(realExtraData, marginBps, premiumBps, maxCost)
+    who: governor, while not retired
     pre:
-      - marginBps <= MAX_MARGIN_BPS
+      - marginBps <= MAX_MARGIN_BPS; premiumBps <= MAX_PREMIUM_BPS
       - maxCost >= quote
     effect:
-      - quote = K.arbitrationCost(realExtraData) * (10000 + marginBps) / 10000, fixed forever
+      - quote = K.arbitrationCost(realExtraData) * (10000 + marginBps) / 10000, fixed forever; pi = quote * premiumBps / 10000
       - emits the epoch's MetaEvidence pair
     events: [EpochRegistered, MetaEvidence]
   - id: G2
@@ -230,44 +274,77 @@ reserve_operations:
     who: anyone
     pre: []
     effect:
-      - free += msg.value
+      - from the governor, principal += msg.value; from anyone else, surplus += msg.value, a gift
     events: [ReserveFunded]
   - id: G3
-    move: withdrawReserve(amount, to)
+    move: deactivate()
     who: governor
     pre:
-      - no case in Unbound, Open, Forwardable
-      - announced RESERVE_TIMELOCK earlier
-      - amount <= free
+      - not retired
     effect:
-      - free -= amount; paid to `to`
-    events: [ReserveWithdrawn]
+      - retired = true; retiredAt = now; no epoch can be registered afterwards
+    events: [Deactivated]
+  - id: G4
+    move: announceWithdrawal(amount, to)
+    who: governor
+    pre:
+      - retired; amount <= principal
+    effect:
+      - pending = {amount, to, announcedAt = now}
+    events: [WithdrawalAnnounced]
+  - id: G5
+    move: cancelWithdrawal()
+    who: governor
+    pre:
+      - a pending announcement exists
+    effect:
+      - pending cleared
+    events: [WithdrawalCancelled]
+  - id: G6
+    move: executeWithdrawal()
+    who: governor
+    pre:
+      - pending; now >= announcedAt + RESERVE_TIMELOCK
+      - now >= retiredAt + RETIREMENT_LOCK, where RETIREMENT_LOCK >= the host's challenge period plus a margin
+      - no case in Unbound, Open or Forwardable; amount <= free
+    effect:
+      - principal -= amount; free -= amount; paid to `to`
+    events: [PrincipalWithdrawn]
+  - id: G7
+    move: migrateSurplus(successor)
+    who: governor
+    pre:
+      - retired; now >= retiredAt + RETIREMENT_LOCK; no case in Unbound, Open or Forwardable
+      - successor was deployed by the same factory for the same host
+    effect:
+      - the whole surplus moves to the successor as its surplus
+    events: [SurplusMigrated]
 
 invariants:
   - id: I1
     name: conservation
-    text: balance == sum of open fees + sum of earmarks + sum of case credits + sum of claimable + free, after every transition
+    text: balance == sum of open fees + sum of unclaimed funding + sum of claimable + reserve, and reserve == principal + surplus, and free == reserve - sum of earmarks, after every transition
   - id: I2
     name: one-time finalization
-    text: exactly one of T3, T5, T7, T8, T9, T11 executes per case; T12 at most once per K ruling
+    text: exactly one of T3, T5, T7, T8, T9, T11 executes per case; T12 at most once per K ruling; T15 at most once per funder per case
   - id: I3
     name: quote stability
-    text: F_A == F_B == q for every case of an epoch; a quote never changes after registration
+    text: F_A == F_B == q for every case of an epoch; a quote and its premium never change after registration
   - id: I4
     name: no holdup
-    text: the requester can always execute T5 at the current ask before forwarding; the ask is set at most once upward and then only falls
+    text: the requester can always execute T5 at the current ask before forwarding; the ask is set at most once upward, to at most q - pi, and then only falls
   - id: I5
     name: case-level offer binding
-    text: a live bid blocks T8; no offer is live at or after the deadline; T9 needs no offer check because none can exist
+    text: a live bid blocks T8; no offer is live at or after the deadline; T8 exists only before the deadline and T9 only from it, so they are disjoint
   - id: I6
-    name: passivity
-    text: a silent challenger is conceded to at x = 0; a silent requester reaches court at the deadline through T9; a silent removal is forwarded by anyone
+    name: passivity, by mode
+    text: for an insured case a silent challenger is conceded to at x = 0, a silent requester reaches court at the deadline through T9, and a silent removal is forwarded by anyone; for an under-insured case court depends on free reserve or funding and T11 is possible after the funding period
   - id: I7
     name: deposit neutrality
     text: the wrapper never reads, holds or moves a deposit; its prices are fee shares
   - id: I8
     name: emergency isolation
-    text: T11 is unreachable while covered(id); an insured case is covered for every c <= maxCost
+    text: T11 is unreachable while covered(id) holds and K accepts disputes; an insured case is covered for every c <= maxCost
   - id: I9
     name: failure-safe payouts
     text: no transition other than T14 transfers value to a party; a reverting receiver cannot block any transition
@@ -279,4 +356,16 @@ invariants:
     text: the challenger's economic fee on every forwarded case is q; the reserve absorbs q - c in either direction
   - id: I12
     name: exclusivity at fundingEnd
-    text: for now >= fundingEnd, exactly one of the escalation transitions (T3, T8, T9) or T11 has a satisfiable precondition at any instant, since they test opposite values of covered(id)
+    text: for now >= fundingEnd, escalation needs covered(id) and lapse needs its negation, so absent a resolver failure exactly one of them is satisfiable at any instant; after resolverFailed(id) both may be, which is the disclosed emergency
+  - id: I13
+    name: constant cost
+    text: no transition iterates over funders, cases or epochs; funder refunds are computed lazily per funder from one stored fraction
+  - id: I14
+    name: host-only appeal
+    text: K.appeal is reached only through T13, and T13 only from the host, so the host's appeal crowdfunding is never bypassed
+  - id: I15
+    name: principal and surplus
+    text: surplus leaves the wrapper only to a successor of the same factory after retirement; principal leaves only after retirement, the retirement lock and the timelock, with no case open
+  - id: I16
+    name: non-upgradeable
+    text: the wrapper is a plain contract, no proxy and no admin; nothing changes its behavior after deployment except registered epochs and retirement
