@@ -2,16 +2,16 @@
 
 Out-of-court settlement for optimistic dispute systems.
 
-**Status: design phase. Nothing is deployed.**
+**Status: design phase. Nothing is deployed.** Current version: design [v0.7](docs/intendment-design-v0.7.md) with the stage-1 [state machine 0.3](spec/intendment-arbitrator-state-machine.md); see [`RELEASES.md`](RELEASES.md).
 
-In systems like Kleros Curate, a challenge creates the dispute in the same transaction, so every challenge pays arbitrators, including the ones one side would have conceded on the spot. Intendment is a settlement layer between "a challenge exists" and "a dispute is created": the two parties can end the case by paying each other, priced against what court would have cost them, with the arbitrator as the backstop for cases that still disagree at a deadline.
+In systems like Kleros Curate, a challenge creates the dispute in the same transaction, so every challenge pays arbitrators, including the ones one side would have conceded on the spot. Intendment is a settlement layer between "a challenge exists" and "a dispute is created": the two parties can end the case by paying each other, priced against what court would have cost them, with the arbitrator as the backstop for cases that still disagree at a deadline. What it removes is the resolver's fee, its latency, or both.
 
-First target: Kleros Curate. Intended deployment: an arbitrator-level wrapper, `IntendmentArbitrator`, that any ERC-792 or `IArbitratorV2` arbitrable can adopt by pointing its arbitrator at it, without changing the arbitrable; plus an arbitrable-side extension for challenge withdrawal, which cannot be expressed through rulings alone.
+First target: Kleros Curate. Intended deployment: an arbitrator-level wrapper, `IntendmentArbitrator`, one per list, that a list adopts by pointing its arbitrator at it, without changing the list; its first version has one price and two buttons, concede or court. An arbitrable-side extension follows for challenge withdrawal, which cannot be expressed through rulings alone.
 
 ## Layout
 
-- `docs/` design documents. Every version is kept, and independent reviews are kept alongside the version they reviewed.
-- `spec/` the state machine and accounting, to come.
+- `docs/` design documents. Every version is kept, and independent reviews are kept alongside the version they reviewed, named for the version and, where the reviewer was a model, for the model.
+- `spec/` the stage-1 state machine and accounting: [`intendment-arbitrator-state-machine.md`](spec/intendment-arbitrator-state-machine.md) is normative; its tables are generated from [`intendment-arbitrator-state-machine.yaml`](spec/intendment-arbitrator-state-machine.yaml) by [`render.py`](spec/render.py), and `render.py check` fails when they drift.
 - `contracts/`, `sim/` to come.
 
 ## Related
@@ -21,4 +21,4 @@ First target: Kleros Curate. Intended deployment: an arbitrator-level wrapper, `
 
 ## License
 
-Code: MIT (see `LICENSE`). Documents under `docs/`: [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).
+Code: MIT (see `LICENSE`). Documents under `docs/` and `spec/`: [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).
