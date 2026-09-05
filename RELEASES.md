@@ -2,13 +2,22 @@
 
 A design version and a specification version are one release when they are committed together and cite each other. A release is its signed commits; no tags or timestamp proofs are made (the `v0.4` tag and its OpenTimestamps proof predate that decision and stay as they are). Each release names one **release head**, the commit that adds the design document and therefore contains both artifacts.
 
+## v0.9, 2026-09-05
+
+- release head: b7ef31a
+- design: `docs/intendment-design-v0.9.md` at b7ef31a
+- stage-1 state machine 0.5: `spec/intendment-arbitrator-state-machine.md` at cc131a7, generated from `spec/intendment-arbitrator-state-machine.yaml` at cc131a7 by `spec/render.py`
+- executable stage-1a model: `sim/` at 48e88a4, 27 tests, run in CI with the specification checks
+- supported host profiles: Light GTCR (the Scout lists on Gnosis), Classic GTCR; Curate V2 described, not yet supported (specification section 15)
+- review status: v0.8 and 0.4 reviewed by GPT (`docs/intendment-design-v0.8-review-gpt.md`, folded); v0.9, 0.5 and the model unreviewed
+
 ## v0.8, 2026-09-04
 
 - release head: 4a4ef27
 - design: `docs/intendment-design-v0.8.md` at 4a4ef27
 - stage-1 state machine 0.4: `spec/intendment-arbitrator-state-machine.md` at b5797aa, generated from `spec/intendment-arbitrator-state-machine.yaml` at b5797aa by `spec/render.py` (`validate`, `check`, `diagram`, `fixtures`); CI at `.github/workflows/spec.yml`
 - supported host profiles: Light GTCR (the Scout lists on Gnosis), Classic GTCR; Curate V2 described, not yet supported (specification section 15)
-- review status: v0.7 and 0.3 reviewed by GPT (`docs/intendment-design-v0.7-review-gpt.md`, folded); v0.8 and 0.4 unreviewed
+- review status: v0.7 and 0.3 reviewed by GPT (`docs/intendment-design-v0.7-review-gpt.md`, folded); v0.8 and 0.4 reviewed by GPT at a82bfb5, folded into v0.9
 
 ## v0.7, 2026-09-04
 
