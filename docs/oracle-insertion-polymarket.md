@@ -1,6 +1,6 @@
 # Insertion study: Intendment between Polymarket and UMA's Optimistic Oracle
 
-Companion to `intendment-design-v0.8.md`, section 5, stage 4. One page, written against the public contracts on 2026-09-02 and rebased on 2026-09-04 to fix the callback timeline, which the v0.6 review found self-contradictory. Facts carry a source; judgments are marked as such.
+Companion to `intendment-design-v0.9.md`, section 5, stage 4. One page, written against the public contracts on 2026-09-02 and rebased on 2026-09-04 to fix the callback timeline, which the v0.6 review found self-contradictory. Facts carry a source; judgments are marked as such.
 
 ## How Polymarket resolves a market today
 
