@@ -82,6 +82,10 @@ def validate(doc):
         for key in ("who", "pre", "money"):
             if key not in t:
                 problems.append(f"{t['id']}: missing {key}")
+        if t.get("preserving") and sorted(t["from"]) != sorted(t["to"]):
+            problems.append(f"{t['id']}: preserving transitions must list the same states in from and to")
+        if not t.get("preserving") and t["from"] and set(t["from"]) == set(t["to"]) and len(t["to"]) > 1:
+            problems.append(f"{t['id']}: from equals to for several states; mark it preserving or give it a real target")
     for g in doc["reserve_operations"]:
         if g["id"] in seen:
             problems.append(f"{g['id']}: duplicate id")
@@ -111,10 +115,13 @@ def diagram(doc):
     for t in doc["transitions"]:
         label = f"{t['id']} {t['move'].split('(')[0]}"
         sources = t["from"] or ["[*]"]
+        if t.get("preserving"):
+            # A state-preserving operation: one self-loop per state, never a cross edge.
+            for src in sources:
+                out.append(f"    {src} --> {src}: {label}")
+            continue
         for src in sources:
             for dst in t["to"]:
-                if src == dst and len(t["to"]) > 1 and len(sources) > 1:
-                    continue
                 out.append(f"    {src} --> {dst}: {label}")
     for s in doc["states"]:
         if "terminal" in s["meaning"]:

@@ -5,9 +5,9 @@
 # seed for property-test fixtures (`render.py fixtures`). Prose, rationale,
 # modes and host profiles live in the .md. Not yet an executable model.
 spec: IntendmentArbitrator state machine
-version: "0.4"
+version: "0.5"
 date: 2026-09-04
-normative_for: ../docs/intendment-design-v0.8.md, stage 1 (1a and 1b)
+normative_for: ../docs/intendment-design-v0.9.md, stage 1 (1a and 1b)
 
 symbols:
   q: the epoch quote; the escrow (`fee`) of every case in the epoch; F_A = F_B = q
@@ -21,9 +21,12 @@ symbols:
   reserve: principal + surplus, the wrapper's balance beyond fees, unclaimed funding and claimable credits
   free: reserve minus the sum of earmarks
   funding: totalFunding of a case, stored by funders during the funding period; fundingUsed is what forwarding consumed
-  refundableFraction: (totalFunding - fundingUsed) / totalFunding, stored once at the case's end; 1 on lapse or concession
-  covered(id): c <= fee + earmark + free + (totalFunding - fundingUsed), evaluated live
-  resolverFailed(id): firstForwardFailure != 0 and now >= firstForwardFailure + RESOLVER_GRACE
+  refundableAmount: totalFunding - fundingUsed, stored once at the case's end; each funder claims floor(contribution * refundableAmount / totalFunding); the unclaimed remainder is a liability forever
+  covered(id): quotable(id) and c <= fee + earmark + free + totalFunding, evaluated live
+  quotable(id): K.arbitrationCost(epoch real extra data) answers; a revert makes the case unquotable, which counts as a forwarding failure
+  qualifying failure: K.arbitrationCost or K.createDispute reverted in a call made with at least MIN_FORWARD_GAS available, so the caller could not have starved it
+  graceElapsed(id): firstForwardFailure != 0 and now >= firstForwardFailure + RESOLVER_GRACE
+  reserve draw: at forwarding, min(c - q, earmark + free), taken from surplus first and principal second; only the remainder comes from case funding
 
 events:
   - EpochRegistered
@@ -93,14 +96,14 @@ transitions:
     move: forward(id)
     from: [Forwardable]
     to: [Forwarded]
-    who: anyone; the removal requester's interest; a router bundles it with the challenge
+    who: anyone; the removal requester's interest; a second transaction after the challenge
     stage: 1a
     pre:
       - covered(id)
     money:
-      - c to K from fee, then earmark, then free, then funding; fundingUsed and refundableFraction recorded
+      - c to K from fee, then the reserve draw, then funding; fundingUsed and refundableAmount recorded
       - fee - c, if positive, to surplus; unused earmark to free
-      - if K reverts, nothing moves and firstForwardFailure is recorded
+      - on a qualifying failure nothing moves, firstForwardFailure is recorded if unset, and the case stays where it was
     events: [Escalated, "ForwardFailed?"]
 
   - id: T4
@@ -125,7 +128,7 @@ transitions:
     pre:
       - ask <= maxShare
     money:
-      - claimable A += q - pi - ask; claimable B += ask; surplus += pi; earmark to free; refundableFraction = 1
+      - claimable A += q - pi - ask; claimable B += ask; surplus += pi; earmark to free; refundableAmount = totalFunding
       - then host.rule(id, CHALLENGER_WINS)
     events: [Settled]
 
@@ -139,6 +142,7 @@ transitions:
       - now < deadline
       - x > highest bid so far; x <= q - pi
       - validUntil >= now + V; validUntil <= deadline
+      - if a bid is live, validUntil >= its validUntil, so a replacement never shortens the offer
     money:
       - none; if x >= ask, executes T5 at the ask
     events: [BidPosted, "Settled?"]
@@ -152,7 +156,7 @@ transitions:
     pre:
       - bid live; bid >= minShare
     money:
-      - claimable A += q - pi - bid; claimable B += bid; surplus += pi; earmark to free; refundableFraction = 1
+      - claimable A += q - pi - bid; claimable B += bid; surplus += pi; earmark to free; refundableAmount = totalFunding
       - then host.rule(id, CHALLENGER_WINS)
     events: [Settled]
 
@@ -189,6 +193,7 @@ transitions:
     to: [Open, Forwardable]
     who: anyone
     stage: 1a
+    preserving: true
     pre:
       - now < fundingEnd
     money:
@@ -203,9 +208,9 @@ transitions:
     stage: 1a
     pre:
       - now >= fundingEnd
-      - not covered(id), or resolverFailed(id)
+      - not covered(id), and not merely unquotable
     money:
-      - claimable B += q; refundableFraction = 1; earmark to free
+      - claimable B += q; refundableAmount = totalFunding; earmark to free
       - then host.rule(id, REFUSE)
     events: [Lapsed]
 
@@ -240,6 +245,7 @@ transitions:
     to: [Unbound, Open, Forwardable, Forwarded, Conceded, Lapsed]
     who: any creditor, for its own claimable balance
     stage: 1a
+    preserving: true
     pre:
       - claimable[msg.sender] > 0
     money:
@@ -252,11 +258,27 @@ transitions:
     to: [Forwarded, Conceded, Lapsed]
     who: a funder of the case, once
     stage: 1a
+    preserving: true
     pre:
       - contribution[msg.sender] > 0 and not yet claimed
     money:
-      - claimable[msg.sender] += contribution * refundableFraction; rounding dust stays in surplus
+      - claimable[msg.sender] += floor(contribution * refundableAmount / totalFunding); the unclaimed remainder stays a liability
     events: [FundingClaimed]
+
+  - id: T16
+    move: forwardOrLapse(id)
+    from: [Open, Forwardable]
+    to: [Forwarded, Lapsed]
+    who: anyone
+    stage: 1a
+    pre:
+      - now >= fundingEnd
+      - covered(id) or unquotable, and graceElapsed(id)
+      - at least MIN_FORWARD_GAS available for the attempt
+    money:
+      - a fresh forwarding attempt first, with T3's money on success
+      - on a qualifying failure in this same transaction, T11's money and host.rule(id, REFUSE)
+    events: [Escalated, "ForwardFailed?", "Lapsed?"]
 
 reserve_operations:
   - id: G1
@@ -306,9 +328,9 @@ reserve_operations:
     pre:
       - pending; now >= announcedAt + RESERVE_TIMELOCK
       - now >= retiredAt + RETIREMENT_LOCK, where RETIREMENT_LOCK >= the host's challenge period plus a margin
-      - no case in Unbound, Open or Forwardable; amount <= free
+      - no case in Unbound, Open or Forwardable; amount <= principal and amount <= free at execution
     effect:
-      - principal -= amount; free -= amount; paid to `to`
+      - pending cleared; principal -= amount; free -= amount; paid to `to`
     events: [PrincipalWithdrawn]
   - id: G7
     move: migrateSurplus(successor)
@@ -344,7 +366,7 @@ invariants:
     text: the wrapper never reads, holds or moves a deposit; its prices are fee shares
   - id: I8
     name: emergency isolation
-    text: T11 is unreachable while covered(id) holds and K accepts disputes; an insured case is covered for every c <= maxCost
+    text: T11 is unreachable while covered(id) holds; a covered case reaches Lapsed only through T16, in a transaction in which K rejected a properly funded, properly gassed dispute; an insured case is covered for every c <= maxCost
   - id: I9
     name: failure-safe payouts
     text: no transition other than T14 transfers value to a party; a reverting receiver cannot block any transition
@@ -356,7 +378,7 @@ invariants:
     text: the challenger's economic fee on every forwarded case is q; the reserve absorbs q - c in either direction
   - id: I12
     name: exclusivity at fundingEnd
-    text: for now >= fundingEnd, escalation needs covered(id) and lapse needs its negation, so absent a resolver failure exactly one of them is satisfiable at any instant; after resolverFailed(id) both may be, which is the disclosed emergency
+    text: for now >= fundingEnd, escalation needs covered(id), T11 needs its negation, and T16 forwards before it lapses, so no instant offers both a forwarding and a refusal of a case K would accept
   - id: I13
     name: constant cost
     text: no transition iterates over funders, cases or epochs; funder refunds are computed lazily per funder from one stored fraction
@@ -369,3 +391,12 @@ invariants:
   - id: I16
     name: non-upgradeable
     text: the wrapper is a plain contract, no proxy and no admin; nothing changes its behavior after deployment except registered epochs and retirement
+  - id: I17
+    name: forward first
+    text: a stale forwarding failure never authorizes a refusal by itself; every path to Lapsed for a covered case attempts forwarding in the same transaction
+  - id: I18
+    name: refund liability
+    text: refundableAmount minus what funders have claimed is a liability, never spendable by insurance or withdrawal; rounding leaves it unclaimable, not spent
+  - id: I19
+    name: loss waterfall
+    text: a reserve draw reduces surplus first and principal second; principal is capital at risk, not a nominal claim
