@@ -1,7 +1,7 @@
 # RFC 001: A cheap first instance, severity tiers, and challenger-underwritten deposits
 
-- **Status:** Draft for discussion, revision 2. Not accepted, implemented, audited, or authorized for deployment.
-- **Date:** 2026-09-06. Revision 1 was dated 2026-09-05 and is in the repository history at ba25e22.
+- **Status:** Draft for discussion, revision 3. Not accepted, implemented, audited, or authorized for deployment.
+- **Date:** 2026-09-06, revision 3, which folds the results of the three experiments of section 9. Revision 2 (d798fee, 2026-09-06) and revision 1 (ba25e22, 2026-09-05) are in the repository history.
 - **Baseline:** [design v0.9](intendment-design-v0.9.md) and [stage-1 state machine 0.5](../spec/intendment-arbitrator-state-machine.md); see [the release manifest](../RELEASES.md). This RFC does not amend the baseline, change its release head, or gate the concession-only pilot. Section 11 lists the amendments it proposes for a v0.10.
 - **Origin:** The maintainer's proposals for resolver choice, scalar-priced withdrawal, and reputation-backed deposit financing, reworked through the maintainer's design thread of 2026-09-05 and 2026-09-06 and on-chain research of 2026-09-06. Every rejected form is recorded in section 0 and section 11 so that it is not re-derived.
 
@@ -13,7 +13,7 @@ Two capital locks stand between a submitter and a listing: the deposit, which is
 2. **Severity tiers instead of a scalar.** The same jurors, in the same dispute, choose among three policy-defined tiers. The wrapper maps every rejecting tier to the host's binary ruling and scales only the money it holds. A tiered concession with cost shifting makes a fair offer safe to make and a greedy refusal costly.
 3. **Challenger-underwritten deposits.** The host's cash deposit becomes a prepayment; the rest of the award is the submitter's promise, recorded in the wrapper's ledger and enforced by a credit standing. The winning challenger is the creditor. No pool and no reserve exist, so the two-wallet test passes by construction, and a policy rule makes submitters without standing bond the gap themselves.
 
-The three fit together: tiers only have bite where most of the award is the wrapper's promise, and the cheap first instance is what makes challenging a large defective batch affordable.
+The three fit together: tiers only have bite where most of the award is the wrapper's promise, and the cheap first instance is what makes challenging a large defective batch affordable. Revision 3 adds what the experiments found: the route reproduces exactly on a Gnosis fork, the executable model passes its traces and tightened six rules, and the demand for deposit credit on the Scout lists is weaker than revision 2 assumed.
 
 ## 0. What changed since revision 1
 
@@ -25,6 +25,7 @@ The three fit together: tiers only have bite where most of the award is the wrap
 | 6. Fractional reserving as a later proposal. | Deferred further, and shown to be incompatible with a cheap first instance beyond the first-round fee (section 5.8). | A reserve advance is safe only up to the fee burned in a court loss. With a first round costing a fraction of an xDAI, that bound is negligible. |
 | 7. Moat hypotheses. | One sentence in section 7. | Routes and ledgers are copyable. Being copied by the court is adoption. |
 | Not in revision 1. | The fast-population scenario, a batch concession move, the bootstrap risk, sequencing by audit surface, and the fee-lock result. | Raised in the design thread. |
+| Revision 2 left its three experiments open. | Revision 3 folds their results into sections 1.1, 3.3, 3.4, 4.2, 4.3, 5.2, 5.3, 5.4, 5.7, 8, 9 and 10. | Measured demand, a fork proof, and an executable model beat argument. |
 
 ## 1. Motivation and non-goals
 
@@ -32,7 +33,7 @@ The three fit together: tiers only have bite where most of the award is the wrap
 
 On a Scout-style list a submitter locks the deposit plus the arbitration fee, 30 plus 21.6 xDAI, until the request executes, and a challenger pays the fee to challenge. Three consequences drive this RFC.
 
-**Capital.** A skills publisher submits a few trees and the lock is worth cents in interest; the fee lock is not their problem. A Scout bounty hunter runs hundreds of concurrent entries and has thousands locked; the lock is the ceiling on their throughput. The demand hypothesis of revision 1 was drawn from those submitters, and it is measurable on chain (experiment 1). It follows that the credit product is a Scout feature and the growth pitch to Kleros: more entries and more challenges at the same challenger award, which answers the objection that a settlement layer diverts juror fees.
+**Capital.** A skills publisher submits a few trees and the lock is worth cents in interest; the fee lock is not their problem. A Scout bounty hunter runs dozens of concurrent entries and has thousands locked at peak. Experiment 1 measured it. Over the last six months seventeen requesters submitted; the top five made 85 percent of 4,591 requests and held 1,750 to 4,644 xDAI at their peaks, 3 to 53 times their monthly reward. But the peaks are bursts: steady-state working capital for the top five is 270 to 990 xDAI, a Kleros bot executes every unchallenged request at exactly 3.5 days, and volume tracks a fixed monthly reward pool, so more submissions dilute the per-entry reward rather than earn more. Capital is not the binding constraint on Scout; the reward pool is. The credit product's value there is burst relief for five submitters, a few thousand xDAI in total. Deposit credit has its market where bonds are large, which is where revision 1 first looked, and the growth pitch to Kleros cannot rest on Scout submitters' capital; it rests on the cheap first instance, which makes more challenges affordable on every list.
 
 **Bankruptcy by fees.** A thousand pending items from one submitter share a systematic nit. Under a vanilla registry every challenge goes to court and each lost case burns a fee to jurors. The deposits are not what bankrupts the submitter; the burned fees are. The settlement layer already caps the loss at the deposit through the requester's unilateral concession, and this RFC adds what is missing: a batch move and a price for a nit that is not the price of malice.
 
@@ -100,6 +101,8 @@ Creating the court is one `createSubcourt` call by the Gnosis governor, the 3-of
 
 The expensive court is reached at exactly today's first-instance price, and the party that wants it pays for it.
 
+Experiment 2 reproduced this route on a Gnosis fork at block 48112715: a subcourt created under court 19 with the governor's authority, one dispute run through five rounds, every court, juror count and cost identical to the table, including the jump to General after fifteen jurors, in three identical runs of 163 transactions. One caveat for the real transactions: the nested appeal call through the registry sits close to the node's gas estimate and reverted once by running out of gas; an explicit gas limit fixed it.
+
 Two floors on "fast" that V1 has and V2 does not. Jurors are drawn only in the contract's drawing phase, which cycles on a one-hour minimum staking time and a two-hour maximum drawing time, so a first round waits hours, not minutes. And V1 ends the commit and vote periods early once every juror has acted but never the appeal period; V2 also closes the appeal period once the appeal is funded. The appeal period is the human safety net's reaction time and should not be short (section 3.5).
 
 ### 3.4 What this does to the fee lock
@@ -113,7 +116,7 @@ Two floors on "fast" that V1 has and V2 does not. Jurors are drawn only in the c
 | Stake the previous winner's side must raise, at 100% | 100.8 | 43.2 |
 | If only one side funds the appeal | that side wins | that side wins |
 
-Every party locks the first-instance fee and nothing else. The human rounds are funded at appeal time by the appellant and by anyone who crowdfunds a side, the previous loser stakes three times the round cost and loses it if it loses again, and a side that does not fund loses. All of that is the host's existing appeal rule. The two-stage fee discussed in the design thread is therefore native once the first instance is cheap, and no fee credit is needed; only the deposit remains a credit question (section 5).
+Every party locks the first-instance fee and nothing else. The human rounds are funded at appeal time by the appellant and by anyone who crowdfunds a side, the previous loser stakes three times the round cost and loses it if it loses again, and a side that does not fund loses. All of that is the host's existing appeal rule. The two-stage fee discussed in the design thread is therefore native once the first instance is cheap, and no fee credit is needed; only the deposit remains a credit question (section 5). The consumer side was exercised in the same experiment: a profile pinning court 19 with three jurors verified, failed closed with the extra-data pin message once the registry governor switched to the new court, and a profile pinning the new court verified.
 
 ### 3.5 Risks and rules
 
@@ -138,10 +141,11 @@ Severity of a defect under a published rubric is a different question from inten
 - **Three, and no more.** Juror rewards follow the majority; every added option costs coherence.
 - **Mapping.** The wrapper's own meta-evidence names the options, since the wrapper is the arbitrable from the court's point of view, and the evidence display follows the wrapper-to-host mapping that S9 already requires. Every rejecting tier maps to the host's "challenger wins". Refusal maps to refusal.
 - **Scaling.** A tier scales only money the wrapper holds: the fee share, the promised gap of section 5, a bond. The host pays its whole cash deposit to the winner of any rejecting tier. Under vanilla deposits the wrapper holds almost nothing, so tiers have bite only with credited deposits; the two mechanisms are one design.
+- **A ruling produced by one-sided appeal funding has no tier.** If only the challenger's side funds an appeal of a ruling for the requester, the host flips the outcome without any juror having tiered it. The ledger must follow the host's outcome; the promise is then due at the last tier a juror ruled, or at the prepayment alone if none was, which is open decision 10.
 
 ### 4.3 Tiered concession with cost shifting
 
-The requester may concede at a tier, paying that tier's price in cash to the challenger in the same transaction. The challenger accepts, or escalates. If the court's tier is at or below the conceded tier, the challenger bears the court cost, its fee unreimbursed. If the court's tier is higher, the requester pays the higher tier plus the burned fee. This is the settlement-offer rule from civil procedure: a fair offer is safe to make, a greedy refusal is costly, and there is no market and no second dispute.
+The requester may concede at a tier, escrowing that tier's price for the challenger in the concession transition; under S15 it is a claimable credit, not a transfer. A concession at the malicious tier is terminal, since no court can rule higher. At a lower tier the concession is an offer: the challenger accepts, or escalates at its own first-instance fee. If the court's tier is at or below the conceded tier, the challenger's fee is not reimbursed. The model of experiment 3 shows this can only be netted from wrapper-held money, because the host's pot reimburses the winner's fee unconditionally, so the rule has bite only up to the promise. If the court's tier is higher, the requester pays the higher tier and the burned fee, which is the ordinary court outcome. This is the settlement-offer rule from civil procedure: a fair offer is safe to make and a greedy refusal costs the refuser its fee. With a first instance costing a fraction of an xDAI that cost is small, and a spiteful escalation buys a few hours of delay for it; from the second round on, the appeal stakes carry the deterrent.
 
 A free evaluation may anchor the offer, an automated checker for the formal tier or a model's reading for the others. It never rules; a wrong anchor costs the honest side capital that returns with the win. This keeps every anchor out of the trust base.
 
@@ -175,13 +179,14 @@ The host governor lowers the cash deposit to a **prepayment** `u`. The listing p
 A submitter with no standing would otherwise submit through the host with the prepayment alone. The listing policy therefore requires that, at the submission block, the submitter either has standing above a published threshold or holds a **bond** in the wrapper covering `D − u` times their open requests. The rule is mechanical and on-chain, the ordinary court decides it as a formal-tier violation, and:
 
 - The bond is per submitter address, not per request, so there is no race between a submission and a bonding transaction.
-- The evidence display shows "bonded or standing at submission: yes / no" from the wrapper's events, so jurors decide it at no cost.
+- The evidence display shows "bonded or standing at submission: yes / no" from the wrapper's events and the host's count of the submitter's open requests at that block, so jurors decide it at no cost. The bond must exist in a block strictly before the submission, so same-block ordering never matters.
+- A bond is withdrawn only with notice of at least the challenge period, and only while the submitter has no open request and no unpaid debt, so it cannot be pulled from under a pending case (open decision 11).
 - An unbonded submission with no standing is a certain challenge win for the prepayment. Honest forgetful submitters will be farmed; the display and the CLI refuse to submit unbonded without a loud warning.
 - Policy is immutable per registry on Intendancy V1. The rule must be in the policy at deployment, so the credited model needs either a registry deployed with it or a Scout list, where a meta-evidence update through a KIP is normal. It cannot be switched on by changing the arbitrator alone.
 
 ### 5.3 Rules
 
-1. **Cash to concede, per tier.** A credited submitter concedes only by paying the tier's share of the promise in cash in the same transaction. A defaulter's cheapest exit is otherwise a free concession; with the rule, their only exit is court, where they lose the prepayment, the fee, and the standing.
+1. **Cash to concede, per tier.** A credited submitter concedes only by escrowing the tier's share of the promise in the concession transition, claimable by the challenger under S15. A defaulter's cheapest exit is otherwise a free concession; with the rule, their only exit is court, where they lose the prepayment, the fee, and the standing.
 2. **Silence escalates**, as S1 says. The first instance is prepaid, so an absent requester reaches court as today.
 3. **Standing is shown before a challenge is made.** Challengers price the gap between prepayment and promise from what the wrapper shows them. The ledger's legibility is the whole underwriting system in the first version.
 4. **A voluntary bond** may be posted by any submitter, backing all their open requests, paying challengers first. It is their own money, so it is Sybil-safe, and it turns the promise into cash for anyone who opts in.
@@ -202,6 +207,16 @@ Scout deposit 30, cheap first instance at 0.5, illustrative prepayment 6.
 
 Two things to read off the table. The deterrent against a submitter who defaults falls from the deposit to the prepayment plus the standing; that is the price, and it is why the prepayment is open decision 1 rather than a small number. And the cheap first instance answers the scrutiny objection to the credited model: with 21.6 at risk a challenger needed 78 percent confidence to challenge a defaulter for a prepayment of 6; with 0.5 at risk they need 7.7 percent.
 
+The executable model of experiment 3 re-derived the payoffs of design section 2 for the credited case, prepayment 6, tier prices 10, 50 and 100 percent of the promise, first-instance fee 0.5, challenger deposit 0:
+
+| Tier | Promise share | Requester's court loss | Concession band | Challenger's minimum confidence, paying submitter |
+|---|---|---|---|---|
+| formal | 2.4 | 8.9 | 8.4 to 8.9 | 5.6% |
+| substantive | 12 | 18.5 | 18 to 18.5 | 2.7% |
+| malicious | 24 | 30.5 | 30 to 30.5 | 1.6% |
+
+Against a defaulter the threshold is 7.7 percent at every tier; a defaulter has no band because it cannot concede. The vanilla band is 21.6 wide with a 41.9 percent threshold. The credited band is 0.5 wide at every tier, so the tier ladder, not the fee share, is the bargaining space, which is what the tiers were for.
+
 ### 5.5 Two-wallet and adversarial traces
 
 1. **Self-lending.** No lender exists; nothing to trace.
@@ -220,7 +235,7 @@ Self-challenges and self-payments are indistinguishable from real ones (S4, S5),
 
 ### 5.7 Demand and the pitch
 
-The design is a Scout feature. Its demand is measurable now from the three Scout lists: concurrent pending entries per submitter times 51.6 is the capital they have locked today, and the credited model with a cheap first instance turns 51.6 into 6.5 per entry. The pitch to Kleros is throughput at the same challenger award, and therefore more challenges and more juror fees, not fewer.
+Measured, section 1.1 and experiment 1: on the Scout lists capital is not the binding constraint, the fixed reward pool is, and the credited model would relieve peak bursts for five submitters worth a few thousand xDAI in total. That does not justify lowering the defaulter's deterrent for everyone on those lists. The design's market is hosts with large bonds: oracle and escrow bonds, and Curate lists with deposits in the hundreds. The pitch to Kleros is the cheap first instance, which raises the number of affordable challenges on every list; credit is not the pitch.
 
 ### 5.8 The reserve variant, deferred
 
@@ -269,7 +284,7 @@ New models must exercise interactions, not features in isolation.
 | Farmed standing | Any credit line beyond the bond is bounded by the prepayment clearing the challenge threshold; a farmed identity gains throughput only. |
 | Compromised publisher | Many concurrent low-cash submissions with a malicious tree; challenge threshold, tier award, and appeal window keep it catchable. |
 | Policy immutability | The bonding rule cannot be introduced to a deployed registry by an arbitrator switch. |
-| Retirement | Open promises, bonds, and unpaid debts survive a wrapper retirement and a host arbitrator switch (S19). |
+| Retirement | Open promises, bonds, and unpaid debts survive a wrapper retirement and a host arbitrator switch (S19); standing is per instance and is lost with the switch unless migrated explicitly (open decision 12). |
 
 The stage-1 model does not validate any of this; new tests are new models and must not be credited to the baseline's CI.
 
@@ -279,13 +294,19 @@ The stage-1 model does not validate any of this; new tests are new models and mu
 
 For the three Scout lists, count concurrent pending entries per submitter over the last months and multiply by the lock. Separate capital constraints from limits in reviewer capacity. **Advance when** the locked capital of the top submitters is large relative to their listing rewards, which makes the credited model worth its lower defaulter deterrent.
 
+**Result, 2026-09-06.** 23,049 requests since 2023 from the public index of the three lists, spot-checked against chain. The condition holds arithmetically, 3 to 53 times monthly reward at peak for the top five, but the mechanism does not: steady-state working capital is 270 to 990 xDAI, peaks are bursts, execution is a bot at exactly 3.5 days, and volume tracks the fixed reward pool. Does not advance on Scout. The measurement is to be repeated on a large-bond host before the credited model is built for it.
+
 ### Experiment 2: prove the route on a fork
 
 On a Gnosis fork, create the subcourt under court 19 with the governor's authority, point the wrapper at it, run one dispute through the first round, an appeal that jumps to court 19, and a second appeal, and switch the consumer profile to the new extra data through the CLI's signed release path. **Advance when** every round's court and cost match section 3.3 and the profile switch fails closed on any mismatch.
 
+**Result, 2026-09-06.** Advances. Five rounds observed, 0.5, 21.6, 50.4, 108 and 372, courts 20, 19, 19, 19 and 0, jurors 1, 3, 7, 15 and 31; the loser and winner appeal stakes at 200 and 100 percent; the profile failed closed on the switch and verified after a new profile. The registry stood in for the wrapper, since the wrapper is not yet a contract; the drawn jurors and the governor were fork impersonations, so the experiment says nothing about who would stake in such a court.
+
 ### Experiment 3: extend the executable model
 
 Add prepayment, promise, tiers, cost-shifting concession, batch concession, and the traces of section 8 to `sim/`, and re-derive the payoff table of design section 2 with the award split into prepayment and promise. **Advance when** every trace passes and the concession band is stated for the credited case.
+
+**Result, 2026-09-06.** 50 tests pass on branch `exp/credited-model`, the 27 stage-1a tests untouched and 23 new, with money conservation asserted at every step; the band is in section 5.4. The model tightened six rules, now folded into sections 4.2, 4.3, 5.2, 5.3 and 8: the untiered funding flip, cost shifting bounded by wrapper-held money, escrow instead of same-transaction cash, the host's open-request count in the bonding check, a bond withdrawal rule, and standing across a switch. It also confirmed that the griefing cost with cheap challenges is exactly the fee plus the challenger deposit and nothing else, which is open decision 2.
 
 The withdrawal experiment of revision 1 is dropped; the decision is made. The routing experiment is replaced by experiment 2, since there is nothing to route.
 
@@ -300,6 +321,9 @@ The withdrawal experiment of revision 1 is dropped; the decision is made. The ro
 7. Batch concession semantics under S15, including partial batches.
 8. Whether W1 to W3, the challenger's withdrawal, also take tier prices.
 9. Watchdog sizing at launch: appeal period, wallet, and who watches.
+10. The tier at which a promise falls due when the host's outcome comes from one-sided appeal funding rather than a juror ruling.
+11. The bond withdrawal rule: the notice period, and whether a debt-free submitter with open requests may shrink a bond that still covers them.
+12. Standing across an arbitrator switch or a wrapper retirement: migrate, restart, or attest.
 
 ## 11. Proposed amendments to the baseline, for v0.10
 
