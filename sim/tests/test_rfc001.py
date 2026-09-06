@@ -49,6 +49,8 @@ class Fixture(unittest.TestCase):
 
     def case(self, item="item", secured=None, claim=None):
         tid, key = self.request(item, secured)
+        # Fixture explicitly selects its intended high claim; the API never does.
+        claim = len(self.p.ladder) - 1 if claim is None else claim
         cid = self.w.challenge("bob", key, claim=claim)
         return tid, key, cid
 
@@ -182,7 +184,7 @@ class ReservationTests(Fixture):
     def test_old_policy_request_keeps_old_terms(self):
         tid, key = self.request()
         self.w.configure("governor", "host", replace(self.p, version="new", award=40_000))
-        cid = self.w.challenge("bob", key)
+        cid = self.w.challenge("bob", key, claim=len(self.w.requests[key].policy.ladder) - 1)
         self.assertEqual(self.w.requests[key].policy, self.p)
         self.assertEqual(self.w.tickets[tid].policy, self.p)
         self.w.concede("alice", cid, 4)
@@ -219,7 +221,7 @@ class ReservationTests(Fixture):
         self.rejected(self.w.reserve, "alice", "host", "b", secured=0, nonce=1, expiry=1200)
         self.w.mine()
         key = self.w.host_submit("alice", "host", "item")
-        cid = self.w.challenge("bob", key)
+        cid = self.w.challenge("bob", key, claim=len(self.w.requests[key].policy.ladder) - 1)
         self.w.concede("alice", cid, 4)
         self.w.release(key)
         self.w.withdraw_bond("alice", 500)
@@ -296,14 +298,14 @@ class LifecycleTests(Fixture):
 
     def test_no_financial_model_censors_unbacked_challenge(self):
         key = self.w.host_submit("alice", "host", "item")
-        cid = self.w.challenge("bob", key)
+        cid = self.w.challenge("bob", key, claim=len(self.w.requests[key].policy.ladder) - 1)
         self.assertIsNone(self.w.requests[key].ticket)
         did = self.w.escalate_merits("alice", cid)
         self.finish(did, CLAIMANT)
         self.rejected(self.w.open_severity, "bob", cid, max_fee=500)
         self.w.mine(20)
         self.w.close_severity_window(cid)
-        self.assertEqual(self.w.cases[cid].debt, self.p.amount(0))
+        self.assertEqual(self.w.cases[cid].debt, self.p.amount(4))
 
     def test_offer_monotonicity(self):
         _, _, cid = self.case()
@@ -415,10 +417,11 @@ class SeverityTests(Fixture):
         tid, _, cid = self.case()
         self.w.concede("alice", cid, 1)
         self.w.set_resolver("court", "court", kind="severity", fee=700)
-        self.rejected(self.w.open_severity, "bob", cid, max_fee=700)
-        self.w.top_up_cost("alice", cid, 200)
-        did = self.w.open_severity("bob", cid, max_fee=700)
+        did = self.w.open_severity("bob", cid, max_fee=700, min_reimbursement=500)
+        self.assertEqual(self.w.cases[cid].snapshot.reimbursement_cap, 500)
+        before = self.w.balance("credit", "bob")
         self.finish(did, CLAIMANT)
+        self.assertEqual(self.w.balance("credit", "bob") - before, 21_600 + 500)
         self.assertEqual(self.w.balance("cost", tid), 0)
 
     def test_fee_slippage_limit_is_enforced(self):
@@ -670,7 +673,7 @@ class MandateTests(Fixture):
 
     def test_wrong_requester_cannot_spend_mandate(self):
         _, key = self.request("other", owner="carol")
-        cid = self.w.challenge("bob", key)
+        cid = self.w.challenge("bob", key, claim=len(self.w.requests[key].policy.ladder) - 1)
         mid, (proof,) = self.mandate([cid])
         self.rejected(self.w.execute_mandate, mid, cid, proof)
 
@@ -755,7 +758,7 @@ class InvariantTests(Fixture):
         self.w.reserve("alice", "host", "x", secured=24_000, nonce=0, expiry=1200)
         self.w.mine()
         key = self.w.host_submit("alice", "host", "x")
-        cid = self.w.challenge("alice", key)
+        cid = self.w.challenge("alice", key, claim=len(self.w.requests[key].policy.ladder) - 1)
         self.w.concede("alice", cid, 4)
         self.w.release(key)
         self.w.withdraw_bond("alice", 500)
@@ -822,6 +825,235 @@ class InvariantTests(Fixture):
             if self.w.cases[cid].debt and rng.choice((True, False)):
                 self.w.repay(owner, cid, self.w.cases[cid].debt)
             self.w.check()
+
+
+class ReviewAmendmentTests(Fixture):
+    """PR #10: backstop access is separate from reimbursement capacity."""
+
+    def unbacked(self, item="bare", admission=1, claim=4):
+        key = self.w.host_submit("alice", "host", item)
+        cid = self.w.challenge("bob", key, claim=claim)
+        self.w.concede("alice", cid, admission)
+        return key, cid
+
+    def test_missing_claim_is_not_an_implicit_maximum(self):
+        _, key = self.request()
+        before = deepcopy(self.w.__dict__)
+        with self.assertRaises(TypeError):
+            self.w.challenge("bob", key)
+        self.assertEqual(self.w.__dict__, before)
+        for invalid in (None, True, -1, 5):
+            with self.subTest(claim=invalid):
+                self.rejected(self.w.challenge, "bob", key, claim=invalid)
+
+    def test_unbacked_low_concession_defaults_to_explicit_claim(self):
+        key, cid = self.unbacked(admission=0, claim=3)
+        self.assertEqual(self.w.severity_terms(cid), (CLAIMANT, "alice"))
+        self.rejected(self.w.open_severity, "bob", cid, max_fee=500)
+        self.w.mine(20)
+        self.w.close_severity_window(cid)
+        self.assertEqual(self.w.cases[cid].final_rung, 3)
+        self.assertEqual(self.w.cases[cid].debt, self.p.amount(3) - self.p.amount(0))
+        self.assertEqual(self.w.requests[key].ruling, CLAIMANT)
+        self.assertFalse(self.w.requests[key].registered)
+        self.rejected(self.w.close_severity_window, cid)
+
+    def test_unbacked_requester_can_contest_and_win(self):
+        key, cid = self.unbacked()
+        before = self.w.balance("wallet", "alice")
+        did = self.w.open_severity("alice", cid, max_fee=500)
+        s = self.w.cases[cid].snapshot
+        self.assertEqual((s.default_side, s.opening_party, s.fee_payer, s.reimbursement_cap),
+                         (CLAIMANT, "alice", "alice", 0))
+        self.finish(did, REQUESTER)
+        self.assertEqual(self.w.cases[cid].final_rung, 1)
+        self.assertEqual(self.w.cases[cid].debt, 0)
+        self.assertEqual(before - self.w.balance("wallet", "alice"), 500)
+        self.assertEqual(self.w.balance("jurors"), 500)
+        self.assertFalse(self.w.requests[key].registered)
+
+    def test_unbacked_requester_loses_without_fictitious_fee_credit(self):
+        _, cid = self.unbacked()
+        did = self.w.open_severity("alice", cid, max_fee=500)
+        before = self.w.balance("credit", "bob")
+        self.finish(did, CLAIMANT)
+        self.assertEqual(self.w.balance("credit", "bob"), before)
+        self.assertEqual(self.w.cases[cid].debt, 21_600)
+        self.assertEqual(self.w.cases[cid].snapshot.reimbursement_cap, 0)
+
+    def test_unbacked_refusal_preserves_claim_default(self):
+        _, cid = self.unbacked()
+        did = self.w.open_severity("alice", cid, max_fee=500)
+        self.finish(did, REFUSE)
+        self.assertEqual(self.w.disputes[did].final, REFUSE)
+        self.assertEqual(self.w.cases[cid].final_rung, 4)
+        self.assertEqual(self.w.cases[cid].debt, 21_600)
+
+    def test_unbacked_refusal_does_not_change_appeal_refund_rule(self):
+        _, cid = self.unbacked()
+        did = self.w.open_severity("alice", cid, max_fee=500)
+        self.appeal_both(did, REQUESTER)
+        self.finish(did, REFUSE)
+        self.assertEqual(self.w.cases[cid].final_rung, 4)
+        self.assertEqual(self.w.claim_appeal("carol", did, 0), 34_560)
+        self.assertEqual(self.w.claim_appeal("dave", did, 0), 51_840)
+
+    def test_unbacked_appeal_reversal_selects_frozen_admission(self):
+        _, cid = self.unbacked()
+        did = self.w.open_severity("alice", cid, max_fee=500)
+        frozen = self.w.cases[cid].snapshot
+        self.appeal_both(did, CLAIMANT)
+        self.finish(did, REQUESTER)
+        self.assertEqual(self.w.cases[cid].final_rung, 1)
+        self.assertEqual(self.w.cases[cid].snapshot, frozen)
+        self.assertEqual(self.w.cases[cid].debt, 0)
+
+    def test_unbacked_appeal_funding_default_is_not_raw_refusal(self):
+        _, cid = self.unbacked()
+        did = self.w.open_severity("alice", cid, max_fee=500)
+        self.w.publish_ruling("court", did, REFUSE)
+        self.w.fund_appeal("alice", did, REQUESTER, 43_200)
+        self.w.mine(20)
+        self.assertEqual(self.w.finalize(did), REQUESTER)
+        self.assertEqual(self.w.cases[cid].final_rung, 1)
+
+    def test_unbacked_lowered_claim_controls_default_not_original_claim(self):
+        _, cid = self.unbacked()
+        self.w.lower_claim("bob", cid, 2)
+        self.w.mine(20)
+        self.w.close_severity_window(cid)
+        self.assertEqual(self.w.cases[cid].final_rung, 2)
+
+    def test_unbacked_agreement_still_needs_no_court(self):
+        _, cid = self.unbacked()
+        self.w.lower_claim("bob", cid, 1)
+        self.assertEqual(self.w.cases[cid].state, CaseState.FINISHED)
+        self.assertFalse(self.w.disputes)
+
+    def test_unbacked_cannot_demand_nonexistent_minimum_reimbursement(self):
+        _, cid = self.unbacked()
+        self.rejected(self.w.open_severity, "alice", cid, max_fee=500, min_reimbursement=1)
+
+    def test_unbacked_insufficient_fee_keeps_case_unopened(self):
+        _, cid = self.unbacked()
+        self.w.deposit_bond("alice", self.w.balance("wallet", "alice"))
+        self.rejected(self.w.open_severity, "alice", cid, max_fee=500)
+        self.w.mine(20)
+        self.w.close_severity_window(cid)
+        self.assertEqual(self.w.cases[cid].final_rung, 4)
+
+    def test_late_ticket_binding_keeps_normal_default(self):
+        tid = self.ticket(expiry=self.w.now + 10)
+        self.w.mine(9)
+        key = self.w.host_submit("alice", "host", "item")
+        self.w.mine(2)
+        cid = self.w.challenge("bob", key, claim=4)
+        self.assertEqual(self.w.requests[key].ticket, tid)
+        self.assertEqual(self.w.severity_terms(cid), (REQUESTER, "bob"))
+        self.w.concede("alice", cid, 1)
+        self.rejected(self.w.open_severity, "alice", cid, max_fee=500)
+        self.w.mine(20)
+        self.w.close_severity_window(cid)
+        self.assertEqual(self.w.cases[cid].final_rung, 1)
+
+    def test_invalid_same_block_ticket_does_not_change_default(self):
+        self.ticket()
+        key = self.w.host_submit("alice", "host", "item")
+        cid = self.w.challenge("bob", key, claim=4)
+        self.assertEqual(self.w.severity_terms(cid), (CLAIMANT, "alice"))
+
+    def test_strangers_ticket_does_not_change_default(self):
+        self.ticket(owner="bob")
+        self.w.mine()
+        key = self.w.host_submit("alice", "host", "item")
+        cid = self.w.challenge("bob", key, claim=4)
+        self.assertEqual(self.w.severity_terms(cid), (CLAIMANT, "alice"))
+
+    def test_cost_top_up_is_optional_not_a_veto(self):
+        tid, _, cid = self.case()
+        self.w.concede("alice", cid, 1)
+        self.w.set_resolver("court", "court", kind="severity", fee=700)
+        self.w.top_up_cost("alice", cid, 200)
+        did = self.w.open_severity("bob", cid, max_fee=700, min_reimbursement=700)
+        self.assertEqual(self.w.cases[cid].snapshot.reimbursement_cap, 700)
+        self.finish(did, CLAIMANT)
+        self.assertEqual(self.w.balance("cost", tid), 0)
+
+    def test_minimum_reimbursement_protects_claimant_from_stale_quote(self):
+        _, _, cid = self.case()
+        self.w.concede("alice", cid, 1)
+        self.w.set_resolver("court", "court", kind="severity", fee=700)
+        self.rejected(self.w.open_severity, "bob", cid, max_fee=700, min_reimbursement=700)
+        self.w.open_severity("bob", cid, max_fee=700, min_reimbursement=500)
+
+    def test_fee_drift_does_not_reverse_normal_burden(self):
+        _, _, cid = self.case()
+        self.w.concede("alice", cid, 1)
+        self.w.set_resolver("court", "court", kind="severity", fee=700)
+        self.assertEqual(self.w.severity_terms(cid), (REQUESTER, "bob"))
+        self.rejected(self.w.open_severity, "alice", cid, max_fee=700)
+        self.w.mine(20)
+        self.w.close_severity_window(cid)
+        self.assertEqual(self.w.cases[cid].final_rung, 1)
+
+    def test_capped_fee_drift_reversal_to_claimant_pays_only_backing(self):
+        tid, _, cid = self.case()
+        self.w.concede("alice", cid, 1)
+        self.w.set_resolver("court", "court", kind="severity", fee=700)
+        did = self.w.open_severity("bob", cid, max_fee=700)
+        self.appeal_both(did, REQUESTER)
+        before = self.w.balance("credit", "bob")
+        self.finish(did, CLAIMANT)
+        self.assertEqual(self.w.balance("credit", "bob") - before, 21_600 + 500)
+        self.assertEqual(self.w.balance("cost", tid), 0)
+        self.assertEqual(self.w.cases[cid].debt, 0)
+
+    def test_capped_fee_drift_reversal_to_requester_returns_backing(self):
+        tid, key, cid = self.case()
+        self.w.concede("alice", cid, 1)
+        self.w.set_resolver("court", "court", kind="severity", fee=700)
+        did = self.w.open_severity("bob", cid, max_fee=700)
+        self.appeal_both(did, CLAIMANT)
+        self.finish(did, REQUESTER)
+        self.assertEqual(self.w.balance("cost", tid), 500)
+        self.w.release(key)
+        self.assertEqual(self.w.balance("free", "alice"), 24_500 - 2400)
+
+    def test_cost_quote_after_open_cannot_change_reimbursement(self):
+        tid, _, cid, did = self.severity()
+        self.w.set_resolver("court", "court", kind="severity", fee=100_000)
+        self.finish(did, CLAIMANT)
+        self.assertEqual(self.w.cases[cid].snapshot.reimbursement_cap, 500)
+        self.assertEqual(self.w.balance("cost", tid), 0)
+
+    def test_unbacked_default_only_follows_final_merits_rejection(self):
+        key = self.w.host_submit("alice", "host", "bare")
+        cid = self.w.challenge("bob", key, claim=4)
+        did = self.w.escalate_merits("alice", cid)
+        self.finish(did, REQUESTER)
+        self.assertTrue(self.w.requests[key].registered)
+        self.assertEqual(self.w.cases[cid].debt, 0)
+        self.rejected(self.w.close_severity_window, cid)
+
+    def test_unbacked_mandate_does_not_evade_reversed_default(self):
+        key = self.w.host_submit("alice", "host", "bare")
+        cid = self.w.challenge("bob", key, claim=4)
+        mid, (proof,) = self.mandate([cid], rung=1)
+        self.w.execute_mandate(mid, cid, proof)
+        self.w.mine(20)
+        self.w.close_severity_window(cid)
+        self.assertEqual(self.w.cases[cid].final_rung, 4)
+        self.assertEqual(self.w.cases[cid].debt, 21_600)
+
+    def test_unbacked_default_debt_can_be_repaid_but_not_minted(self):
+        _, cid = self.unbacked()
+        self.w.mine(20)
+        before = self.w.balance("credit", "bob")
+        self.w.close_severity_window(cid)
+        self.assertEqual(self.w.balance("credit", "bob"), before)
+        self.w.repay("alice", cid, 21_600)
+        self.assertEqual(self.w.cases[cid].debt, 0)
+        self.assertEqual(self.w.balance("credit", "bob"), before + 21_600)
 
 
 if __name__ == "__main__":

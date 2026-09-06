@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: MIT
-"""RFC 001 revision 5 executable reference implementation (NOT a contract).
+"""RFC 001 revision 5 plus PR #10 review amendment (NOT a contract).
 
 Pinned source and implementation decisions: docs/rfc-001-implementation.md.
 The world includes a simulated registration host and a controllable resolver.
@@ -161,6 +161,10 @@ class FinalOffers:
     initial_fee: int
     cost_cap: int
     opened_at: int
+    default_side: int
+    opening_party: str
+    fee_payer: str
+    reimbursement_cap: int
 
 
 @dataclass
@@ -475,12 +479,10 @@ class World:
         self._credit(("host", key), r.requester, self.balance("host", key))
 
     @transaction
-    def challenge(self, caller: str, key: Key, *, claim: int | None = None, evidence: str = "evidence") -> int:
+    def challenge(self, caller: str, key: Key, *, claim: int, evidence: str = "evidence") -> int:
         r = self._request(key)
         require(not r.resolved and r.case is None, "not challengeable")
         require(self.now <= r.submitted_at + r.policy.challenge_period, "challenge deadline")
-        if claim is None:
-            claim = len(r.policy.ladder) - 1
         r.policy.amount(claim)
         cid = len(self.cases) + 1
         self._move(("wallet", caller), ("host", key), r.policy.challenger_deposit)
@@ -588,29 +590,47 @@ class World:
         require(r.ticket is not None and self.now < c.severity_end, "ticket/window required")
         self._move(("wallet", caller), ("cost", r.ticket), amount)
 
-    @transaction
-    def open_severity(self, caller: str, cid: int, *, max_fee: int) -> int:
+    def severity_terms(self, cid: int) -> tuple[int, str]:
+        """Default side and permitted opener, based on backing at submission.
+
+        challenge() binds a qualifying ticket using the *actual* host record;
+        late observation does not turn a timely ticket into an unbacked request.
+        A fee increase does not remove the ticket or reverse the burden.
+        """
         c, r = self._case(cid)
-        require(caller == c.claimant and c.state == CaseState.NEGOTIATING, "claimant, negotiating only")
+        return (REQUESTER, c.claimant) if r.ticket is not None else (CLAIMANT, r.requester)
+
+    @transaction
+    def open_severity(self, caller: str, cid: int, *, max_fee: int,
+                      min_reimbursement: int = 0) -> int:
+        c, r = self._case(cid)
+        default_side, opener = self.severity_terms(cid)
+        require(caller == opener and c.state == CaseState.NEGOTIATING, "designated opener, negotiating only")
         require(self.now < c.severity_end and c.claim > c.admission, "no live disagreement")
         require(r.policy.amount(c.claim) > r.policy.amount(c.admission), "no monetary disagreement")
         fee = self._quote(r.policy, "severity")
         require(fee <= uint(max_fee), "fee slippage")
-        require(r.ticket is not None and self.balance("cost", r.ticket) >= fee, "cost bond shortfall")
+        backing = self.balance("cost", r.ticket) if r.ticket is not None else 0
+        reimbursement = min(fee, backing) if default_side == REQUESTER else 0
+        require(reimbursement >= uint(min_reimbursement), "reimbursement slippage")
+        # The reimbursement cap is NOT a condition on the right to adjudicate.
+        # An unbacked requester pays to contest and receives no fee reimbursement.
         self._move(("wallet", caller), ("jurors",), fee)
         c.snapshot = FinalOffers(self.domain, r.key, cid, r.policy, c.evidence,
                                  r.requester, c.claimant, c.admission, c.claim,
                                  r.policy.amount(c.admission), r.policy.amount(c.claim),
-                                 fee, self.balance("cost", r.ticket), self.now)
+                                 fee, backing, self.now, default_side, opener, caller, reimbursement)
         c.severity_dispute = self._new_dispute(cid, "severity", fee)
         c.state = CaseState.SEVERITY
+        self.events.append(("SeverityTerms", cid, default_side, opener, fee, reimbursement))
         return c.severity_dispute
 
     @transaction
     def close_severity_window(self, cid: int) -> None:
         c, _ = self._case(cid)
         require(c.state == CaseState.NEGOTIATING and self.now >= c.severity_end, "window open/not negotiating")
-        self._finish_financial(cid, c.admission)
+        default_side, _ = self.severity_terms(cid)
+        self._finish_financial(cid, c.claim if default_side == CLAIMANT else c.admission)
 
     def _finish_financial(self, cid: int, rung: int, outcome: int | None = None) -> None:
         c, r = self._case(cid)
@@ -624,8 +644,8 @@ class World:
         c.debt = due - secured
         self.outstanding_debt[r.requester] = self.outstanding_debt.get(r.requester, 0) + c.debt
         # Initial fee allocation follows FINAL outcome, never a provisional vote.
-        if c.snapshot is not None and outcome == CLAIMANT:
-            self._credit(("cost", r.ticket), c.claimant, c.snapshot.initial_fee)
+        if c.snapshot is not None and outcome == CLAIMANT and c.snapshot.reimbursement_cap:
+            self._credit(("cost", r.ticket), c.snapshot.fee_payer, c.snapshot.reimbursement_cap)
         c.final_rung, c.state = rung, CaseState.FINISHED
         self.events.append(("FinancialFinal", cid, rung, c.paid_award, c.debt))
 
@@ -700,7 +720,10 @@ class World:
                 c.state = CaseState.FINISHED
         else:
             require(c.state == CaseState.SEVERITY and c.snapshot is not None, "wrong phase")
-            rung = c.snapshot.claim if d.final == CLAIMANT else c.snapshot.admission
+            # REFUSE is kept as the raw result for pro-rata appeal refunds.
+            # Only its financial interpretation follows this case's frozen default.
+            effective = c.snapshot.default_side if d.final == REFUSE else d.final
+            rung = c.snapshot.claim if effective == CLAIMANT else c.snapshot.admission
             self._finish_financial(d.case, rung, d.final)
         self.events.append(("DisputeFinal", did, d.final))
         return d.final
@@ -811,8 +834,15 @@ class World:
                 assert (s.admission, s.claim, s.policy, s.evidence) == (c.admission, c.claim, r.policy, c.evidence)
                 assert s.admission_amount == r.policy.amount(c.admission)
                 assert s.claim_amount == r.policy.amount(c.claim)
-                assert 0 < s.initial_fee <= s.cost_cap
+                assert s.initial_fee > 0
+                default_side, opener = self.severity_terms(cid)
+                assert (s.default_side, s.opening_party, s.fee_payer) == (default_side, opener, opener)
+                expected_cap = min(s.initial_fee, s.cost_cap) if default_side == REQUESTER else 0
+                assert s.reimbursement_cap == expected_cap
+                assert 0 <= s.reimbursement_cap <= s.initial_fee
                 assert c.severity_dispute is not None
+                if c.state == CaseState.SEVERITY:
+                    assert self.balance("cost", r.ticket) >= s.reimbursement_cap
             if c.final_rung is not None:
                 assert c.state == CaseState.FINISHED and r.ruling == CLAIMANT and not r.registered
                 assert c.paid_award + c.debt == r.policy.amount(c.final_rung), "award plus debt"
