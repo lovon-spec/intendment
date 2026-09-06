@@ -20,15 +20,16 @@ in RFC 001's route experiment. There is no fallback to latest state.
 Classic instances are created by the real factory on the fork, initially pointing
 to Kleros, then adopted by a newly deployed Intendment wrapper. The Light traces
 adopt the wrapper on the actual list by impersonating its governor **on the fork**.
-Both retain the host's real challenge and appeal code. Test metadata and opaque
-item bytes exercise protocol plumbing; they are not a claim of policy compliance.
+Both retain the host's real challenge and appeal code. Classic submits descriptor
+bytes; Light submits a URI through the distinct `addItem(string)` selector. Test
+metadata and item contents exercise plumbing, not content-policy compliance.
 
 Source references:
 
 - [Intendancy real-factory test](https://github.com/lovon-spec/Intendancy/blob/f22edf0727cd27d0f36348f917d3dbdb12de5785/contracts/test/IntendancyRegistry.t.sol): factory address, deployment ABI and Classic setup pattern. That existing test uses a mock arbitrator; this slice does not claim to reuse an already-published real-juror harness.
 - [Kleros deployment addresses](https://github.com/kleros/kleros-docs/blob/c054b208d2147d50301de195e46b68b22d4cd4fb/developer/deployment-addresses.md): Light Address Tags list.
 - [GTCR source](https://github.com/kleros/tcr/tree/72e547ea135d839dc5db34e79e9f94f05c6a92bb/contracts): Classic/Light request and crowdfunding ABIs.
-- [Kleros V1 source](https://github.com/kleros/kleros/blob/755659207c14051af9f30b7e20e98c0b9b2dd844/contracts/kleros/KlerosLiquid.sol): phase cycling, real sortition, commit/reveal, appeal periods and ruling execution. The test exercises the deployed fork bytecode, rather than recompiling this source as a substitute.
+- [Gnosis xKlerosLiquid source](https://github.com/kleros/xdai-kleros-liquid/blob/149d6a714c74050f927c9aff453582029449b341/contracts/kleros/xKlerosLiquid.sol): AuRa-compatible RNG access, phase cycling, sortition, commit/reveal, appeal periods and ruling execution. The test exercises deployed fork bytecode, rather than recompiling this source as a substitute.
 
 Each setup checks chain/block identity, nonempty deployed code, and the expected
 court quote. It emits host/resolver code hashes for run provenance. This is an
@@ -55,6 +56,22 @@ ERC-1497 `Dispute` and `Ruling` use Kleros IDs. Kleros's `AppealPossible` is che
 at its source and its original window is read through the wrapper. No wrapper
 notification synchronizer or new deadline is manufactured.
 
+## Source-confirmed indexer gate
+
+The inspected [gtcr-indexer AppealPossible handler](https://github.com/kleros/gtcr-indexer/blob/df5e900344a59d5a6621090d2747628cba863511/src/mappings/Arbitrator/AppealPossible.ts)
+looks up a Registry or LRegistry entity using the event's `_arbitrable` address.
+For a forwarded Intendment dispute, Kleros emits that address as the **wrapper**,
+not the host. That handler does not implement the additional remote-to-local/host
+mapping and would not process the event as a host registry event without adaptation.
+The inspected [Curate timeline](https://github.com/kleros/gtcr/blob/70b5bc365bf881b75186f1e3294401385d4abc2f/src/components/request-timelines.tsx)
+uses the indexed round's appeal start, ruling and event transaction hash.
+
+These source observations are not a deployed-frontend compatibility test. Before
+using that pipeline, implement and test wrapper-aware indexing/notification or an
+explicit polling path. Preserve the actual Kleros appeal window and resolve the
+exact cached host request, not a later request for the same item. This PR does not
+modify either upstream application or synthesize a late `AppealPossible` event.
+
 ## Controlled inputs and important limits
 
 These are deterministic **integration** tests, not evidence of economic security:
@@ -62,17 +79,20 @@ These are deterministic **integration** tests, not evidence of economic security
 - Actors receive test-only native balances. Governors and drawn juror addresses
   are impersonated using Foundry, exclusively inside the ephemeral fork.
 - Kleros's RNG provider is replaced through its real governor function by a
-  deterministic fork-only provider. The actual court's sortition tree, existing
-  stakers, draw, commit/reveal, vote counting, periods, appeals and callback code
-  are otherwise exercised. No Kleros/host storage is overwritten and no result
-  is injected by directly calling the wrapper's `rule` as the resolver.
+  deterministic fork-only provider implementing the Gnosis `IRandomAuRa` calls:
+  `nextCommitPhaseStartBlock`, `collectRoundLength`, `isCommitPhase`, `currentSeed`.
+  The mainnet `requestRN`/`getUncorrelatedRN` interface is not used. The actual
+  court's sortition tree, existing stakers, draw, commit/reveal, vote counting,
+  periods, appeals and callback code are otherwise exercised. No Kleros/host
+  storage is overwritten and no result is injected by directly calling the
+  wrapper's `rule` as the resolver.
 - External RNG service availability, adversarial juror behavior and live staking
   incentives are **not validated**. Native/token fee redistribution to jurors is
-  outside these traces; the actual ruling execution and host fund distribution
-  are exercised independently.
+  outside these traces; actual ruling execution and host fund distribution are
+  exercised independently.
 - Court 19 with three then seven jurors is tested, not the proposed agent court
-  or every parent-court jump. Logged forwarding gas is one observed path, not a
-  universal gas upper bound.
+  or every parent-court jump. Logged forwarding gas is one observed test path,
+  not a universal upper bound or calibration of independent cold transactions.
 - Official Curate UI, legacy subgraph, notification delivery and silent-party
   evidence display compatibility remain separate gates. Following a remote
   event correctly in a Solidity test does not repair an indexer automatically.
