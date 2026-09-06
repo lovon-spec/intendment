@@ -1,0 +1,33 @@
+name: Stage 1a pinned Gnosis fork
+
+on:
+  push:
+    paths: ["contracts/**", "foundry.toml", ".github/workflows/gnosis-fork.yml"]
+  pull_request:
+    paths: ["contracts/**", "foundry.toml", ".github/workflows/gnosis-fork.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  pinned-fork:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      RUN_GNOSIS_FORK: "true"
+      GNOSIS_RPC_URL: "https://rpc.gnosischain.com"
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: foundry-rs/foundry-toolchain@908c540300062bd5a7e473851cdb4282204cee09
+        with:
+          version: v1.3.6
+      - run: forge --version
+      - run: forge build --sizes
+      - name: Run actual-host and actual-court traces at block 48112715
+        shell: bash
+        run: |
+          set -euo pipefail
+          forge test --match-path 'contracts/test/fork/GnosisStage1a.t.sol' -vvv
