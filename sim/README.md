@@ -10,3 +10,7 @@ pytest sim -q
 ```
 
 It is a model of the specification, not of a contract: gas, reentrancy and ABI details are out of scope, except that "properly gassed" is a boolean the caller controls, as the specification's `MIN_FORWARD_GAS` floor makes it on chain.
+
+## Experiment 3: the credited model
+
+`intendment/credited.py` is RFC 001 revision 2 on top of the stage-1a model, which it subclasses without changing: a cheap first instance with a programmed route and the host's appeal funding rule, credited deposits (prepayment, promise, bond, standing), severity tiers, the cost-shifting and batch concessions, and the bonding rule as an evidence display over an immutable policy. `tests/test_credited.py` runs one test per row of the RFC's section 8 trace table; every transition and every test asserts system-wide conservation. `RESULTS-credited.md` re-derives the payoff table with the award split and lists where the RFC's rules conflict with the spine or with each other. It is not part of the baseline and credits nothing to it.
