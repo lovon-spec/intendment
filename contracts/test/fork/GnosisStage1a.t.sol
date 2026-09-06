@@ -33,7 +33,8 @@ interface IRealHost is IRegistry {
     function submissionChallengeBaseDeposit() external view returns (uint256);
     function winnerStakeMultiplier() external view returns (uint256);
     function loserStakeMultiplier() external view returns (uint256);
-    function addItem(bytes calldata) external payable;
+    function addItem(bytes calldata) external payable; // Classic
+    function addItem(string calldata) external payable; // Light: URI, distinct selector
     function challengeRequest(bytes32, string calldata) external payable;
     function executeRequest(bytes32) external;
     function fundAppeal(bytes32, uint8) external payable;
@@ -42,7 +43,7 @@ interface IRealHost is IRegistry {
     function changeArbitrationParams(address, bytes calldata, string calldata, string calldata) external;
 }
 
-/// The live V1 ABI. No mock rule()/vote counters or host storage replacement.
+/// The live Gnosis V1 ABI. No mock rule()/vote counters or host storage replacement.
 interface IXKleros is IArbitrator {
     function governor() external view returns (address);
     function changeRNGenerator(address) external;
@@ -63,13 +64,14 @@ interface IXKleros is IArbitrator {
         uint256[] memory, uint256[] memory, uint256[] memory);
 }
 
-/// FORK ONLY: removes an external RNG service dependency, not jury/ruling logic.
-/// Installed via the real Kleros governor method on the ephemeral fork.
+/// FORK ONLY: Gnosis xKlerosLiquid expects the IRandomAuRa interface.
+/// Installed via the real governor method; only randomness/service availability is controlled.
 contract DeterministicForkRNG {
-    function requestRN(uint256) external {}
-    function getUncorrelatedRN(uint256 requestBlock) external view returns (uint256) {
-        require(block.number > requestBlock, "advance RNG block");
-        return uint256(keccak256(abi.encode("Intendment fork RNG", requestBlock))) | 1;
+    function nextCommitPhaseStartBlock() external view returns (uint256) { return block.number + 1; }
+    function collectRoundLength() external pure returns (uint256) { return 1; }
+    function isCommitPhase() external pure returns (bool) { return true; }
+    function currentSeed() external pure returns (uint256) {
+        return uint256(keccak256("Intendment fork RNG"));
     }
 }
 
@@ -157,7 +159,8 @@ contract GnosisStage1aForkTest {
         require(host.arbitrator() == address(wrapper), "host adoption");
         require(keccak256(host.arbitratorExtraData()) == keccak256(envelope), "host envelope");
         deposit = host.submissionBaseDeposit(); challengeDeposit = host.submissionChallengeBaseDeposit();
-        descriptor = abi.encode("intendment/pinned-fork/stage1a", classic);
+        descriptor = classic ? abi.encode("intendment/pinned-fork/stage1a", true)
+            : bytes("ipfs://intendment-pinned-fork-light-item");
         item = keccak256(descriptor);
         require(_count() == 0, "fixture item collision");
         initialCourtBalance = KLEROS.balance;
@@ -184,7 +187,9 @@ contract GnosisStage1aForkTest {
         require(count == 1, "missing/duplicate expected event");
     }
     function _submit() internal {
-        VM.prank(A); host.addItem{value: deposit + q}(descriptor);
+        VM.prank(A);
+        if (profile == HostProfiles.Profile.Classic) host.addItem{value: deposit + q}(descriptor);
+        else host.addItem{value: deposit + q}(string(descriptor));
         require(_count() == 1 && _status() == 2, "pending registration");
     }
     function _challenge() internal {
