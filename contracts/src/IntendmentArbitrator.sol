@@ -190,6 +190,7 @@ contract IntendmentArbitrator is IArbitrator, IArbitrable {
         uint256 need = e.maxCost - e.quote;
         c.earmark = _min(need, free()); c.insuredAtCreation = c.earmark == need;
         totalEarmarked += c.earmark; openFees += msg.value; openCases++;
+        emit DisputeCreation(id, IArbitrable(HOST));
         emit CaseOpened(id, eid, msg.value, c.deadline, c.fundingEnd, c.earmark);
         if (!c.insuredAtCreation) emit UnderInsured(id, need - c.earmark);
     }
@@ -358,7 +359,8 @@ contract IntendmentArbitrator is IArbitrator, IArbitrable {
         uint256 id = mapped - 1; Case storage c = cases[id];
         if (c.state != State.Forwarded || c.rulingDelivered || ruling > c.choices) revert InvalidState();
         c.rulingDelivered = true; c.ruling = ruling;
-        emit Ruling(K, id, ruling); emit RulingRelayed(id, remoteID, ruling);
+        // Toward K we are arbitrable: the standard event uses K's namespace.
+        emit Ruling(K, remoteID, ruling); emit RulingRelayed(id, remoteID, ruling);
         IArbitrable(HOST).rule(id, ruling);
     }
     function _forwarded(uint256 id) internal view returns (Case storage c) {
@@ -371,6 +373,8 @@ contract IntendmentArbitrator is IArbitrator, IArbitrable {
         (uint256 start, uint256 end) = K.appealPeriod(c.kDisputeID);
         if (block.timestamp < start || block.timestamp >= end) revert InvalidState();
         K.appeal{value: msg.value}(c.kDisputeID, epochs[c.epochId].realExtraData);
+        // This transition is observed directly; no resolver callback is needed.
+        emit AppealDecision(id, IArbitrable(HOST));
     }
     function appealCost(uint256 id, bytes calldata data) external view override returns (uint256) {
         Case storage c = _forwarded(id);

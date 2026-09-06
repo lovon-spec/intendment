@@ -116,6 +116,49 @@ back, including refunds/credits, so retry is possible after host recovery.
    The host will receive its result later; wrapper reserve money is no longer at
    risk for that case after successful forwarding.
 
+## Review amendment: event namespaces and appeal notification
+
+The wrapper has two roles, with distinct dispute-ID namespaces:
+
+| Event emitted by the wrapper | ID namespace and address |
+|---|---|
+| ERC-792 `DisputeCreation(localID, HOST)` | Local case, emitted at creation even if it later settles without Kleros. |
+| ERC-792 `AppealDecision(localID, HOST)` | Local case, emitted only after the host's appeal has successfully reached Kleros. |
+| ERC-1497 `Dispute(K, remoteID, ...)` | Kleros dispute, emitted on successful forwarding. |
+| ERC-1497 `Ruling(K, remoteID, ruling)` | Kleros dispute, emitted on final callback. |
+| `RulingRelayed(localID, remoteID, ruling)` | Explicit bridge; the host callback still receives the local ID. |
+
+`Interfaces.sol` declares all three ERC-792 arbitrator events, including
+`AppealPossible`. **Declaring the latter does not mean it is emitted automatically.**
+Kleros entering its appeal period does not call this wrapper. The wrapper can emit
+`AppealDecision` directly because it observes the successful appeal transaction;
+that reasoning does not apply to `AppealPossible`.
+
+No notification synchronizer or synthetic appeal window is introduced in this
+amendment. `disputeStatus`, `currentRuling`, `appealPeriod` and `appealCost` query the
+actual remote dispute. Integrations must either follow Kleros's events using the
+stored mapping or poll these views. A delayed notification must never reset the
+actual appeal deadline. Before relying on the official Curate UI or legacy-curate
+subgraph, trace their exact arbitrator-event subscriptions and validate a mapped
+appeal from notification through host crowdfunding. Event-driven compatibility is
+an explicit unresolved deployment gate, not established by adding event declarations.
+The event regressions deliberately use unequal local and remote IDs.
+
+## Review amendment: timelock principal-funding runbook
+
+The factory authorizes the host's immediate `governor()` address. `fundReserve()`
+classifies its immediate `msg.sender` as principal only if it equals the wrapper's
+fixed `GOVERNOR`. A Safe controlling a TimelockController is not that address.
+
+When the governor is a timelock, schedule and execute the factory deployment and
+each principal deposit through that timelock, including the intended call value.
+A Safe or another address calling `fundReserve()` directly donates **surplus**, not
+withdrawable principal. Inspect `ReserveFunded.isPrincipal` and the balances after
+funding. Governor changes on the host do not rewrite the wrapper's immutable governor.
+Raw empty-calldata transfers revert (there is no receive function); forced native
+currency is unaccounted until donated to surplus by `syncSurplus()`. Do not describe
+a raw transfer as a principal-funding method. Retirement restrictions still apply.
+
 ## Tests and what they do not establish
 
 Foundry tests exercise both getter profiles; canonical epochs; requester-only early
@@ -124,6 +167,8 @@ waterfalls; fee increases/decreases; case funding/dust; stale and persistent res
 failure; caller starvation; malformed/reused return IDs; callbacks and reentrancy;
 credit receivers; appeal authorization; principal locks and migration; forced ETH;
 and fuzzed waterfall/refund arithmetic. Test fixtures are intentionally explicit.
+`Stage1aEvents.t.sol` adds event correlation, successful/failed appeal events,
+callback retry and immediate-sender funding regressions.
 
 Compiler and test outcomes are recorded in the PR/CI, not assumed from source review.
 No local Solidity compiler was available in the authoring environment; GitHub CI is

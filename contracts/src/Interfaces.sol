@@ -4,6 +4,9 @@ pragma solidity 0.8.30;
 /// ERC-792 native-currency arbitrator surface. V2/ERC-20 is deliberately excluded.
 interface IArbitrator {
     enum DisputeStatus { Waiting, Appealable, Solved }
+    event DisputeCreation(uint256 indexed _disputeID, IArbitrable indexed _arbitrable);
+    event AppealPossible(uint256 indexed _disputeID, IArbitrable indexed _arbitrable);
+    event AppealDecision(uint256 indexed _disputeID, IArbitrable indexed _arbitrable);
     function arbitrationCost(bytes calldata extraData) external view returns (uint256);
     function createDispute(uint256 choices, bytes calldata extraData) external payable returns (uint256);
     function appealCost(uint256 disputeID, bytes calldata extraData) external view returns (uint256);
