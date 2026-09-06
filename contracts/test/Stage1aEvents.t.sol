@@ -103,7 +103,7 @@ contract Stage1aEventsTest {
         _localEvent(_find(VM.getRecordedLogs(), DECISION), id);
         require(k.disputeStatus(remoteID) == IArbitrator.DisputeStatus.Waiting, "appeal forwarded");
     }
-    function testFailedAppealDoesNotEmitDecision() public {
+    function testRejectedAppealDoesNotEmitDecision() public {
         (, uint256 remoteID) = _forwarded();
         k.setAppealable(remoteID, 2); VM.recordLogs();
         (bool ok,) = address(host).call{value: 299}(abi.encodeCall(host.appealThroughHost, (ITEM)));
