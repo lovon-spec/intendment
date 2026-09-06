@@ -10,7 +10,7 @@ First target: Kleros Curate. Intended deployment: an arbitrator-level wrapper, `
 
 ## Layout
 
-- `docs/` design documents. Every version is kept, and independent reviews are kept alongside the version they reviewed, named for the version and, where the reviewer was a model, for the model.
+- `docs/` design documents. Every version is kept, and independent reviews are kept alongside the version they reviewed, named for the version and, where the reviewer was a model, for the model. RFCs (`docs/rfc-*.md`) are proposals under discussion; nothing in them is part of the baseline until a version folds it in.
 - `spec/` the stage-1 state machine and accounting: [`intendment-arbitrator-state-machine.md`](spec/intendment-arbitrator-state-machine.md) is normative; its tables are generated from [`intendment-arbitrator-state-machine.yaml`](spec/intendment-arbitrator-state-machine.yaml), structured specification data that [`render.py`](spec/render.py) validates, renders, diagrams and exports as fixtures; CI runs `validate` and `check` on every change. The wrapper is non-upgradeable by design.
 - `sim/` an executable model of stage 1a with integer accounting and the specification's traces as tests; CI runs them.
 - `contracts/` to come, against the model.
