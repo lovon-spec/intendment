@@ -15,6 +15,12 @@ First target: Kleros Curate. Intended deployment: an arbitrator-level wrapper, `
 - `sim/` an executable model of stage 1a with integer accounting and the specification's traces as tests; CI runs them.
 - `contracts/` to come, against the model.
 
+## Polymarket redesign — draft
+
+[RFC 002: Parallel-backed resolution and cheaper concessions](docs/rfc-002-polymarket-parallel-resolution.md) proposes finite candidate outcomes with independent backers, fixed resolution epochs, and one authoritative oracle decision when needed. A concession withdraws only the caller's position; it cannot erase someone else's backing or restart their clock.
+
+The RFC reopens the fee-saving design and records the remaining funding, reward and integration questions. It is not part of the v0.9 baseline and has no Polymarket-specific implementation or validation attached. The [earlier insertion study](docs/oracle-insertion-polymarket.md) remains the record of the previous, fee-preserving approach.
+
 ## Related
 
 - kleros/curate-v2 [#110](https://github.com/kleros/curate-v2/pull/110): a hash chain over item status transitions, so a client can verify a list's contents from one storage proof.
