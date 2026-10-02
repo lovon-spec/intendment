@@ -8,6 +8,8 @@ In systems like Kleros Curate, a challenge creates the dispute in the same trans
 
 First target: Kleros Curate. Intended deployment: an arbitrator-level wrapper, `IntendmentArbitrator`, one per list, that a list adopts by pointing its arbitrator at it, without changing the list; its first version has one price and two buttons, concede or court. An arbitrable-side extension follows for challenge withdrawal, which cannot be expressed through rulings alone.
 
+Second target: Polymarket, whose markets resolve through UMA's optimistic oracle. The [oracle design](docs/intendment-oracle-design-v0.2.md) puts a short settlement window between a dispute and UMA: a dispute the parties settle pays UMA nothing, and one they do not settle reaches UMA unchanged.
+
 ## Layout
 
 - `docs/` design documents. Every version is kept, and independent reviews are kept alongside the version they reviewed, named for the version and, where the reviewer was a model, for the model. RFCs (`docs/rfc-*.md`) are proposals under discussion; nothing in them is part of the baseline until a version folds it in.
