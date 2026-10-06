@@ -4,13 +4,13 @@ Out-of-court settlement for optimistic dispute systems.
 
 **Status: design phase. Nothing is deployed.** Current version: design [v0.9](docs/intendment-design-v0.9.md) with the stage-1 [state machine 0.5](spec/intendment-arbitrator-state-machine.md) and an [executable stage-1a model](sim/README.md); see [`RELEASES.md`](RELEASES.md) for the release head.
 
-**Polymarket:** a prototype plug-in for Polymarket's V2 oracle, tested against the deployed contracts on a Polygon fork, is in [`oracle/`](oracle/README.md); its design is [oracle design v0.4](docs/intendment-oracle-design-v0.4.md).
+**Polymarket:** a prototype plug-in for Polymarket's V2 oracle, tested against the deployed contracts on a Polygon fork, is in [`oracle/`](oracle/README.md); its design is [oracle design v0.5](docs/intendment-oracle-design-v0.5.md).
 
 In systems like Kleros Curate, a challenge creates the dispute in the same transaction, so every challenge pays arbitrators, including the ones one side would have conceded on the spot. Intendment is a settlement layer between "a challenge exists" and "a dispute is created": the two parties can end the case by paying each other, priced against what court would have cost them, with the arbitrator as the backstop for cases that still disagree at a deadline. What it removes is the resolver's fee, its latency, or both.
 
 First target: Kleros Curate. Intended deployment: an arbitrator-level wrapper, `IntendmentArbitrator`, one per list, that a list adopts by pointing its arbitrator at it, without changing the list; its first version has one price and two buttons, concede or court. An arbitrable-side extension follows for challenge withdrawal, which cannot be expressed through rulings alone.
 
-Second target: Polymarket, whose markets resolve through UMA's optimistic oracle. The [oracle design](docs/intendment-oracle-design-v0.4.md) puts a short settlement window between a dispute and UMA: a dispute the parties settle pays UMA nothing, and one they do not settle reaches UMA unchanged.
+Second target: Polymarket, whose markets resolve through UMA's optimistic oracle. The [oracle design](docs/intendment-oracle-design-v0.5.md) puts a short settlement window between a dispute and UMA: a dispute the parties settle pays UMA nothing, and one they do not settle reaches UMA unchanged.
 
 ## Layout
 
