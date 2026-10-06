@@ -99,7 +99,7 @@ contract IntendmentReporterModuleTest {
     }
 
     function _caseStatus(uint64 cid) internal view returns (M.CaseStatus st) {
-        (,,,,, st,) = module.cases(cid);
+        (,,,,,, st,) = module.cases(cid);
     }
 
     function _proposer(uint64 pid) internal view returns (address p) {
@@ -234,8 +234,19 @@ contract IntendmentReporterModuleTest {
         vm.prank(ALICE);
         module.concede(c2); // M = 1 spent
         uint64 p3 = _propose(ALICE, rid, module.YES());
+        oo.setRejectAll(true); // UMA refuses: the dispute still stands, holds the market, and can only go to UMA
         uint64 c3 = _dispute(BOB, p3);
-        ok(_caseStatus(c3) == M.CaseStatus.Forwarded, "forwarded in the dispute transaction");
+        ok(_caseStatus(c3) == M.CaseStatus.Open, "dispute recorded although UMA refused");
+        vm.prank(ALICE);
+        vm.expectRevert(M.ForwardOnly.selector);
+        module.concede(c3);
+        vm.warp(block.timestamp + L);
+        vm.expectRevert(M.NotLive.selector);
+        module.settleProposal(p3);
+        oo.setRejectAll(false);
+        vm.prank(CAROL);
+        module.forward(c3); // anyone retries
+        ok(_caseStatus(c3) == M.CaseStatus.Forwarded, "forwarded on the retry");
         eq(oo.storeReceived(), F + B / 2, "UMA paid for the case it decides");
         uint256 bobBefore = token.balanceOf(BOB);
         oo.pushPrice(address(module), ID, _proposedAt(p3), module.umaAncillary(c3), module.NO());
@@ -255,14 +266,14 @@ contract IntendmentReporterModuleTest {
         vm.prank(CAROL);
         module.coBack(p2);
         uint64 c2 = _dispute(BOB, p2);
-        (,,, uint64 deadline,,,) = module.cases(c2);
+        (,,, uint64 deadline,,,,) = module.cases(c2);
         uint256 venueBefore = module.credits(VENUE);
         uint256 aliceBefore = module.credits(ALICE);
         vm.prank(ALICE);
         module.concede(c2);
         eq(uint160(_proposer(p2)), uint160(CAROL), "co-backer is the proposer of record");
         ok(_caseStatus(c2) == M.CaseStatus.Open, "case runs on");
-        (,,, uint64 deadline2,,,) = module.cases(c2);
+        (,,, uint64 deadline2,,,,) = module.cases(c2);
         eq(deadline2, deadline, "same deadline");
         (,, uint64 held, uint8 settled) = _status(rid);
         eq(held, c2, "market still held, not reopened");

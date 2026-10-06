@@ -29,6 +29,9 @@ contract IntendmentReporterModule is IReporterModuleLike {
     uint256 public constant RESULT_DENOMINATOR = 1_000_000;
     uint8 public constant BINARY = 0;
     uint8 public constant INCREMENTAL_NEGRISK = 1;
+    /// UMA's OOv2 takes at most 8,139 bytes of ancillary data (8,192 less the 53 it stamps), and a
+    /// forwarded case adds ",intendmentCase:" and up to 20 digits to the question.
+    uint256 public constant MAX_RULES = 8_139 - 36;
 
     // ----------------------------------------------------------------- configuration
 
@@ -119,6 +122,7 @@ contract IntendmentReporterModule is IReporterModuleLike {
         uint128 disputerFee;
         uint64 deadline;
         bool blocking;
+        bool forwardOnly; // M was spent: the case can only go to UMA (forwarding is retried if it failed)
         CaseStatus status;
         int256 umaPrice;
     }
@@ -152,6 +156,7 @@ contract IntendmentReporterModule is IReporterModuleLike {
     event Conceded(uint64 indexed caseId, address indexed proposer);
     event Withdrawn(uint64 indexed caseId, address indexed disputer);
     event Forwarded(uint64 indexed caseId, uint256 umaTime, bytes ancillaryData);
+    event ForwardFailed(uint64 indexed caseId, bytes reason);
     event CaseResolved(uint64 indexed caseId, int256 umaPrice);
     event Abandoned(uint64 indexed caseId);
     event ProposalSettled(uint64 indexed proposalId, address indexed proposer);
@@ -186,6 +191,7 @@ contract IntendmentReporterModule is IReporterModuleLike {
     error Reentrancy();
     error TransferFailed();
     error NotSelf();
+    error ForwardOnly();
 
     // ----------------------------------------------------------------- modifiers
 
@@ -244,7 +250,9 @@ contract IntendmentReporterModule is IReporterModuleLike {
             Registration memory g = regs[i];
             // the request must belong to the event and be a canonical condition id (outcome byte clear)
             if (bytes29(g.requestId) != eventId || uint8(uint256(g.requestId)) != 0) revert BadRegistration();
-            if (g.bond == 0 || g.liveness < minLiveness || g.rules.length == 0) revert BadRegistration();
+            if (g.bond == 0 || g.liveness < minLiveness || g.rules.length == 0 || g.rules.length > MAX_RULES) {
+                revert BadRegistration();
+            }
             Request storage r = requests[g.requestId];
             if (r.status != RequestStatus.None) revert BadRegistration();
             (uint8 marketType, uint16 resultLength) = aggregator.getRequestShape(g.requestId);
@@ -363,7 +371,9 @@ contract IntendmentReporterModule is IReporterModuleLike {
 
     /// @notice Dispute a live proposal, staking the bond plus UMA's final fee. The first dispute on
     ///         a question resets the market at once and the case concerns only the stakes; a later
-    ///         dispute holds the market for the window, or goes straight to UMA once M is spent.
+    ///         dispute holds the market for the window, or goes straight to UMA once M is spent. If
+    ///         UMA refuses that forward, the dispute still stands and holds the market: the case can
+    ///         only go to UMA, anyone may retry, and the emergency path follows after the grace period.
     function dispute(uint64 pid) external nonReentrant returns (uint64 cid) {
         Proposal storage p = proposals[pid];
         if (p.proposer == address(0) || p.closed || p.caseId != 0 || block.timestamp >= p.expiresAt) revert NotLive();
@@ -387,10 +397,19 @@ contract IntendmentReporterModule is IReporterModuleLike {
             return cid;
         }
         c.blocking = true;
-        c.deadline = uint64(block.timestamp + windowBlocking);
         r.heldBy = cid;
+        if (r.settledBlocking < maxSettledBlocking) {
+            c.deadline = uint64(block.timestamp + windowBlocking);
+            emit Disputed(pid, cid, msg.sender, true, c.deadline);
+            return cid;
+        }
+        c.forwardOnly = true;
+        c.deadline = uint64(block.timestamp);
         emit Disputed(pid, cid, msg.sender, true, c.deadline);
-        if (r.settledBlocking >= maxSettledBlocking) _forward(cid, msg.sender, true);
+        try this.forwardFromSelf(cid, msg.sender) {}
+        catch (bytes memory reason) {
+            emit ForwardFailed(cid, reason);
+        }
     }
 
     /// @notice The proposer of record gives up. With a co-backer behind the answer only the
@@ -400,6 +419,7 @@ contract IntendmentReporterModule is IReporterModuleLike {
     function concede(uint64 cid) external nonReentrant {
         Case storage c = cases[cid];
         if (c.status != CaseStatus.Open) revert CaseNotOpen();
+        if (c.forwardOnly) revert ForwardOnly();
         Proposal storage p = proposals[c.proposalId];
         if (msg.sender != p.proposer) revert NotProposer();
         Request storage r = requests[p.requestId];
@@ -489,7 +509,7 @@ contract IntendmentReporterModule is IReporterModuleLike {
         Case storage c = cases[cid];
         if (c.status != CaseStatus.Open) revert CaseNotOpen();
         if (block.timestamp < uint256(c.deadline) + grace) revert GraceNotOver();
-        try this.forwardFromSelf(cid) {
+        try this.forwardFromSelf(cid, address(0)) {
             return;
         } catch (bytes memory reason) {
             // a selector is the first four bytes of the revert data; shorter data never matches
@@ -512,10 +532,11 @@ contract IntendmentReporterModule is IReporterModuleLike {
         }
     }
 
-    /// @dev Self-call target for `abandon`, so a UMA rejection rolls back only this attempt.
-    function forwardFromSelf(uint64 cid) external {
+    /// @dev Self-call target for `dispute` and `abandon`, so a UMA rejection rolls back only this
+    ///      attempt. A zero payer cannot cover a rise in UMA's final fee.
+    function forwardFromSelf(uint64 cid, address payer) external {
         if (msg.sender != address(this)) revert NotSelf();
-        _forward(cid, address(0), false);
+        _forward(cid, payer, payer != address(0));
     }
 
     // ----------------------------------------------------------------- results and money
