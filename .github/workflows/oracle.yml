@@ -23,3 +23,18 @@ jobs:
       - run: forge --version
       - run: forge build --sizes
       - run: forge test -vvv --no-match-path 'test/fork/*'
+  fork:
+    # Against the deployed contracts on Polygon at a pinned block; RPC responses are cached by the toolchain action.
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: oracle
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: v1.5.1
+      - run: forge test -vv --match-path 'test/fork/*' --fork-url https://polygon.drpc.org --fork-block-number 95030000
