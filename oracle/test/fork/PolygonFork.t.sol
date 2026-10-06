@@ -226,7 +226,7 @@ contract PolygonForkTest {
         uint256 store0 = USDCE.balanceOf(STORE);
         uint256 disputeBlock = block.number;
         uint64 c3 = _dispute(BOB, p3);
-        (,,,,, M.CaseStatus st,) = module.cases(c3);
+        (,,,,,, M.CaseStatus st,) = module.cases(c3);
         require(st == M.CaseStatus.Forwarded, "forwarded in the dispute transaction");
         _eq(USDCE.balanceOf(STORE) - store0, fee + B / 2, "UMA paid for the one case it decides");
 
