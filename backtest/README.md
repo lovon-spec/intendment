@@ -1,6 +1,6 @@
 # Polymarket dispute backtest
 
-The numbers behind sections 0, 1 and 6 of the [oracle design](../docs/intendment-oracle-design-v0.4.md): every UMA dispute on Polymarket's requests in the 90 days to 2026-10-01 (Polygon blocks 89,554,537 to 94,738,439), and what the design's settlement would have changed.
+The numbers behind sections 0, 1 and 6 of the [oracle design](../docs/intendment-oracle-design-v0.5.md): every UMA dispute on Polymarket's requests in the 90 days to 2026-10-01 (Polygon blocks 89,554,537 to 94,738,439), and what the design's settlement would have changed.
 
 - [`report/scenarios.md`](report/scenarios.md): the design's dispute numbers and its three settlement scenarios, from `scenarios.py`.
 - [`report/stats.md`](report/stats.md): the full on-chain picture (volume, fees, rewards, timing, locked stake, disputes), from `scripts/write_report.py`.
@@ -60,4 +60,4 @@ Chain data for the fixed window reproduces exactly. Polymarket's market metadata
 - "Too early" on 589 counts every such settlement in the window, including disputes raised before it. Of the window's own 1,097 resolved disputes, 567 came back too early.
 - The 84% of settled disputes on 500-bond markets since MOOV2 launched comes from a separate scan of all MOOV2 disputes and is not rebuilt here. In this window it is 61% (672 of 1,097 resolved disputes).
 
-The next design version carries these.
+Design v0.5 carries these.

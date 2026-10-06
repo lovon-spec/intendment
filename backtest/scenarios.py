@@ -2,7 +2,7 @@
 
 Reads data/disputes_in_window.json and data/gamma_disputed_markets.json, built by the pipeline in
 scripts/, and prints as Markdown every number that sections 0, 1 and 6 of
-docs/intendment-oracle-design-v0.4.md take from the disputes of the 90 days to 2026-10-01.
+docs/intendment-oracle-design-v0.5.md take from the disputes of the 90 days to 2026-10-01.
 
     python3 scenarios.py data > report/scenarios.md
 
