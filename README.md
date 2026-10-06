@@ -8,7 +8,7 @@ In systems like Kleros Curate, a challenge creates the dispute in the same trans
 
 First target: Kleros Curate. Intended deployment: an arbitrator-level wrapper, `IntendmentArbitrator`, one per list, that a list adopts by pointing its arbitrator at it, without changing the list; its first version has one price and two buttons, concede or court. An arbitrable-side extension follows for challenge withdrawal, which cannot be expressed through rulings alone.
 
-Second target: Polymarket, whose markets resolve through UMA's optimistic oracle. The [oracle design](docs/intendment-oracle-design-v0.2.md) puts a short settlement window between a dispute and UMA: a dispute the parties settle pays UMA nothing, and one they do not settle reaches UMA unchanged.
+Second target: Polymarket, whose markets resolve through UMA's optimistic oracle. The [oracle design](docs/intendment-oracle-design-v0.3.md) puts a short settlement window between a dispute and UMA: a dispute the parties settle pays UMA nothing, and one they do not settle reaches UMA unchanged.
 
 ## Layout
 
