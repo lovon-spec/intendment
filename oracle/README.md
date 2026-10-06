@@ -1,6 +1,6 @@
 # Oracle module
 
-`IntendmentReporterModule` is a reporter module for Polymarket Protocol V2's OracleAggregator. It runs the optimistic proposal and dispute game itself, puts a settlement window between every dispute and UMA, and forwards only disputes the parties do not settle to UMA's OptimisticOracleV2, which decides them as today. A dispute the parties settle pays UMA nothing. The design is [`docs/intendment-oracle-design-v0.3.md`](../docs/intendment-oracle-design-v0.3.md), section 4.
+`IntendmentReporterModule` is a reporter module for Polymarket Protocol V2's OracleAggregator. It runs the optimistic proposal and dispute game itself, puts a settlement window between every dispute and UMA, and forwards only disputes the parties do not settle to UMA's OptimisticOracleV2, which decides them as today. A dispute the parties settle pays UMA nothing. The design is [`docs/intendment-oracle-design-v0.4.md`](../docs/intendment-oracle-design-v0.4.md), section 4.
 
 This is a prototype for review. It is not audited and must not hold real funds.
 

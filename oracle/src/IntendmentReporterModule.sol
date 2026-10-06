@@ -15,7 +15,7 @@ import {
 /// @notice A reporter module for Polymarket's Protocol V2 OracleAggregator that runs the optimistic
 ///         proposal and dispute game itself, puts a settlement window between every dispute and
 ///         UMA, and forwards only unsettled disputes to UMA's OptimisticOracleV2 as the court.
-///         A dispute the parties settle pays UMA nothing. Design: docs/intendment-oracle-design-v0.3.md.
+///         A dispute the parties settle pays UMA nothing. Design: docs/intendment-oracle-design-v0.4.md.
 /// @dev Non-upgradeable; every parameter is fixed at deployment. Payouts are claimable credits.
 ///      No function iterates over co-backers, cases or credits.
 contract IntendmentReporterModule is IReporterModuleLike {
