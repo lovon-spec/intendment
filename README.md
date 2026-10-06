@@ -18,6 +18,7 @@ Second target: Polymarket, whose markets resolve through UMA's optimistic oracle
 - `spec/` the stage-1 state machine and accounting: [`intendment-arbitrator-state-machine.md`](spec/intendment-arbitrator-state-machine.md) is normative; its tables are generated from [`intendment-arbitrator-state-machine.yaml`](spec/intendment-arbitrator-state-machine.yaml), structured specification data that [`render.py`](spec/render.py) validates, renders, diagrams and exports as fixtures; CI runs `validate` and `check` on every change. The wrapper is non-upgradeable by design.
 - `sim/` an executable model of stage 1a with integer accounting and the specification's traces as tests; CI runs them.
 - `oracle/` the Polymarket V2 oracle module, a prototype that is not audited, with unit tests and Polygon fork tests; CI runs both.
+- `backtest/` the Polymarket dispute backtest behind the oracle design's numbers: the scripts that rebuild it from the chain, the dispute dataset and the reports.
 - `contracts/` to come, against the model.
 
 ## Related
@@ -27,4 +28,4 @@ Second target: Polymarket, whose markets resolve through UMA's optimistic oracle
 
 ## License
 
-Code, which today is `spec/render.py`, `sim/` and `oracle/`, and later `contracts/`: MIT (see `LICENSE`; source files carry an SPDX header). Documents, which are everything under `docs/` and the Markdown and YAML under `spec/`: [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).
+Code, which today is `spec/render.py`, `sim/`, `oracle/` and `backtest/`, and later `contracts/`: MIT (see `LICENSE`; source files carry an SPDX header). Documents, which are everything under `docs/` and the Markdown and YAML under `spec/`: [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).

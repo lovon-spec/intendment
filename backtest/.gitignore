@@ -1,0 +1,5 @@
+data/*
+!data/disputes_in_window.json
+!data/gamma_disputed_markets.json
+__pycache__/
+/stats.md
