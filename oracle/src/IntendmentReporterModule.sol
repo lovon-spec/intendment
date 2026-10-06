@@ -323,7 +323,7 @@ contract IntendmentReporterModule is IReporterModuleLike {
         }
         if (coBackersWhitelisted && !proposerWhitelist.isOnWhitelist(msg.sender)) revert NotWhitelisted();
         Request storage r = requests[p.requestId];
-        uint128 fee = _finalFee();
+        uint128 fee = p.proposerFee; // the fee recorded with the proposal; a forward settles any change
         _pull(msg.sender, uint256(r.bond) + fee);
         stakesHeld += uint256(r.bond) + fee;
         index = p.count++;
@@ -369,16 +369,18 @@ contract IntendmentReporterModule is IReporterModuleLike {
 
     // ----------------------------------------------------------------- disputes and cases
 
-    /// @notice Dispute a live proposal, staking the bond plus UMA's final fee. The first dispute on
-    ///         a question resets the market at once and the case concerns only the stakes; a later
-    ///         dispute holds the market for the window, or goes straight to UMA once M is spent. If
-    ///         UMA refuses that forward, the dispute still stands and holds the market: the case can
-    ///         only go to UMA, anyone may retry, and the emergency path follows after the grace period.
+    /// @notice Dispute a live proposal, staking the bond plus the final fee recorded with the
+    ///         proposal, so that no call to UMA stands between a challenger and its case. The first
+    ///         dispute on a question resets the market at once and the case concerns only the stakes;
+    ///         a later dispute holds the market for the window, or goes straight to UMA once M is
+    ///         spent. If UMA refuses that forward, the dispute still stands and holds the market: the
+    ///         case can only go to UMA, anyone may retry, and the emergency path follows after the
+    ///         grace period.
     function dispute(uint64 pid) external nonReentrant returns (uint64 cid) {
         Proposal storage p = proposals[pid];
         if (p.proposer == address(0) || p.closed || p.caseId != 0 || block.timestamp >= p.expiresAt) revert NotLive();
         Request storage r = requests[p.requestId];
-        uint128 fee = _finalFee();
+        uint128 fee = p.proposerFee; // UMA's current fee is read only when the case is forwarded
         _pull(msg.sender, uint256(r.bond) + fee);
         stakesHeld += uint256(r.bond) + fee;
         cid = ++caseCount;
