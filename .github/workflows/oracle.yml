@@ -1,0 +1,25 @@
+name: Oracle module
+on:
+  pull_request:
+    paths: ["oracle/**", ".github/workflows/oracle.yml"]
+  push:
+    paths: ["oracle/**", ".github/workflows/oracle.yml"]
+permissions:
+  contents: read
+jobs:
+  solidity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: oracle
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: v1.5.1
+      - run: forge --version
+      - run: forge build --sizes
+      - run: forge test -vvv --no-match-path 'test/fork/*'
