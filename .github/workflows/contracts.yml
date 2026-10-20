@@ -1,0 +1,36 @@
+name: Stage 1a Solidity prototype
+on:
+  pull_request:
+    paths: ["contracts/**", "foundry.toml", ".github/workflows/contracts.yml"]
+  push:
+    paths: ["contracts/**", "foundry.toml", ".github/workflows/contracts.yml"]
+permissions:
+  contents: read
+jobs:
+  solidity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: v1.3.6
+      - run: forge --version
+      - run: forge build --sizes
+      - run: forge test -vvv
+  baseline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install pyyaml pytest
+      - run: python spec/render.py validate
+      - run: python spec/render.py check spec/intendment-arbitrator-state-machine.md
+      - run: pytest sim -q
