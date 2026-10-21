@@ -4,6 +4,7 @@ pragma solidity 0.8.30;
 import {IArbitrator, IClassicRegistry} from "../../src/Interfaces.sol";
 import {IntendmentArbitrator} from "../../src/IntendmentArbitrator.sol";
 import {IntendmentFactory} from "../../src/IntendmentFactory.sol";
+import {HostProfiles} from "../../src/HostProfiles.sol";
 import {AgentSkillsPilot as Pilot, ITimelock, ISafe} from "../../script/AgentSkillsPilot.s.sol";
 import {IXKleros, DeterministicForkRNG} from "./GnosisStage1a.t.sol";
 
@@ -19,7 +20,6 @@ interface VmPilotFork {
     function roll(uint256) external;
     function recordLogs() external;
     function getRecordedLogs() external returns (Log[] memory);
-    function getNonce(address) external view returns (uint64);
 }
 
 interface IAgentSkillsRegistry is IClassicRegistry {
@@ -37,6 +37,9 @@ interface IXKlerosDisputes {
     function disputes(uint256) external view returns (uint96 subcourtID, address arbitrated, uint256 choices,
         uint8 period, uint256 lastPeriodChange, uint256 drawsInRound, uint256 commitsInRound, bool ruled);
 }
+
+/// A host anyone can deploy, governed by its deployer.
+contract SquatHost { address public governor = msg.sender; }
 
 /// Dress rehearsal of the Agent Skills Registry switching its arbitrator to an Intendment wrapper:
 /// the real Safe proposes the scripted batch on the real timelock, waits out the delay and executes it.
@@ -93,7 +96,7 @@ contract AgentSkillsPilotForkTest {
         IntendmentFactory factory = new IntendmentFactory();
         _gas("factory deployment", gas - gasleft());
         plan = Pilot.read(address(factory), Pilot.PLACEHOLDER_REGISTRATION, Pilot.PLACEHOLDER_CLEARING);
-        require(plan.factoryNonce == 1 && plan.maxCost == 32.4 ether && plan.reserve == q, "plan");
+        require(plan.deployment == 0 && plan.maxCost == 32.4 ether && plan.reserve == q, "plan");
         id = Pilot.operationId(plan);
         (address[] memory t, uint256[] memory v, bytes[] memory d) = Pilot.calls(plan);
         require(TIMELOCK.hashOperationBatch(t, v, d, Pilot.PREDECESSOR, Pilot.SALT) == id, "operation id");
@@ -105,6 +108,9 @@ contract AgentSkillsPilotForkTest {
 
     /// Steps 3-4: wait out the delay; the Safe executes, carrying the reserve as call value.
     function _execute(bytes32 id) internal {
+        // During the wait someone deploys through the factory for a host they govern. Under CREATE2
+        // this no longer takes the predicted address, so the batch below still executes.
+        IntendmentFactory(plan.factory).deploy(address(new SquatHost()), K, HostProfiles.Profile.Classic, Pilot.config());
         uint256 submitterCost = deposit + q;
         uint256 safeBalance = address(SAFE).balance;
         VM.deal(address(SAFE), safeBalance + plan.reserve); // the owner tops up the Safe

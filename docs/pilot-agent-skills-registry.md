@@ -17,30 +17,29 @@ Gas below is from a Gnosis fork at block 48,859,000. Even at 1 gwei the whole se
 
 ## Steps
 
-1. **Deploy the factory** from any funded address (4.33M gas), e.g.
+1. **Deploy the factory** from any funded address (4.46M gas), e.g.
    `forge create contracts/src/IntendmentFactory.sol:IntendmentFactory --rpc-url https://rpc.gnosischain.com --account <deployer> --broadcast`,
-   and verify the source. Nobody should deploy through it before step 4: the batch expects the
-   factory's first wrapper to be ours.
+   and verify the source. It must exist before step 2. The timelock doesn't check for code, so a
+   batch run against an empty factory address would point the registry at an empty address.
 2. **Propose the Safe transaction.** Pin the juror page first and pass its MetaEvidence:
    `FACTORY=0x… REGISTRATION_META_EVIDENCE=/ipfs/… CLEARING_META_EVIDENCE=/ipfs/… forge script contracts/script/AgentSkillsPilot.s.sol`.
    It prints the Safe transaction (to the timelock, value 0, data `scheduleBatch(…)`), its
-   safeTxHash, the operation id, and the later execute and cancel calls. It refuses a missing
-   factory and warns on placeholder MetaEvidence. Executing it costs 0.14M gas.
+   safeTxHash, the operation id, and the later execute and cancel calls. The wrapper's address comes
+   from the factory's CREATE2 prediction, and only the timelock can deploy there. The script refuses
+   a missing factory and warns on placeholder MetaEvidence. Executing it costs 0.14M gas.
 3. **Wait 7 days.** The batch is public in the timelock's `CallScheduled` events; review it there.
-4. **Execute.** Check `cast nonce <factory>` still returns 1, fund the Safe with 21.6 xDAI, then send
-   the printed `executeBatch` from the Safe with value 21.6 xDAI (4.18M gas). One transaction deploys
-   the wrapper, registers the epoch, switches the arbitrator and deposits the reserve. Anyone may
-   execute, but only by attaching the 21.6 xDAI. Ship the `intend` profile that pins the wrapper and
-   its 192-byte extra data at the same time: the CLI fails closed on a changed arbitrator.
+4. **Execute.** Fund the Safe with 21.6 xDAI, then send the printed `executeBatch` from the Safe with
+   value 21.6 xDAI (4.21M gas). One transaction deploys the wrapper, registers the epoch, switches
+   the arbitrator and deposits the reserve. Anyone may execute, but only by attaching the 21.6 xDAI.
+   Ship the `intend` profile that pins the wrapper and its 192-byte extra data at the same time: the
+   CLI fails closed on a changed arbitrator.
 5. **Run the escalation bot.** Watch the wrapper's `CaseOpened` events. Once a case's `deadline` has
    passed with no answer, call `escalate(id)`; call `forward(id)` on removal cases right away, since
    they have no window. Anyone can do this and it only costs gas (0.64M per case); the court fee
-   comes from the case. The wrapper checks it has enough gas for the Kleros call, so send with a
-   2.2M gas limit or it reverts with `InsufficientCallGas`.
+   comes from the case. The wrapper checks it has enough gas for the Kleros call, so use a gas limit
+   of at least 2.2M or it reverts with `InsufficientCallGas`.
 
 ## Cancelling
 
 Until the batch executes, the Safe can cancel it: a Safe transaction to the timelock, value 0, data
 `cancel(<operation id>)` as printed in step 2 (0.06M gas). Fix the problem and propose again.
-If someone deploys through the factory during the wait, the batch reverts on execution; it cannot
-switch the arbitrator to someone else's wrapper. Cancel and propose again with a fresh plan.

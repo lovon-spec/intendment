@@ -50,8 +50,6 @@ interface VmPilot {
     function createSelectFork(string calldata) external returns (uint256);
     function envAddress(string calldata) external view returns (address);
     function envOr(string calldata, string calldata) external view returns (string memory);
-    function getNonce(address) external view returns (uint64);
-    function computeCreateAddress(address, uint256) external pure returns (address);
     function toString(address) external pure returns (string memory);
     function toString(bytes calldata) external pure returns (string memory);
     function toString(bytes32) external pure returns (string memory);
@@ -75,7 +73,7 @@ library AgentSkillsPilot {
 
     struct Plan {
         address factory;
-        uint256 factoryNonce;
+        uint256 deployment;
         address wrapper;
         bytes extra;
         uint256 cost;
@@ -90,10 +88,10 @@ library AgentSkillsPilot {
             reserveTimelock: 7 days, retirementMargin: 1 days});
     }
 
-    /// Reads the live registry and court. The wrapper will be the factory's next CREATE, so the
-    /// factory must already exist and nobody may deploy through it before execution. The timelock
-    /// does not check for code: a batch aimed at an empty factory would point the registry at an
-    /// empty address, which is why a not-yet-deployed factory is refused here.
+    /// Reads the live registry and court. The wrapper's address is the factory's CREATE2 prediction
+    /// for the timelock's next deployment for this registry; only the timelock can deploy there.
+    /// The factory must already exist: the timelock does not check for code, and a batch run
+    /// against an empty factory address would point the registry at an empty address.
     function read(address factory, string memory registrationURI, string memory clearingURI)
         internal view returns (Plan memory p)
     {
@@ -101,8 +99,9 @@ library AgentSkillsPilot {
         require(registry.governor() == TIMELOCK && registry.arbitrator() == KLEROS, "registry is not in its pre-pilot state");
         require(factory.code.length > 0, "deploy the factory first");
         p.factory = factory;
-        p.factoryNonce = VM.getNonce(factory);
-        p.wrapper = VM.computeCreateAddress(factory, p.factoryNonce);
+        p.deployment = IntendmentFactory(factory).deployments(REGISTRY);
+        p.wrapper = IntendmentFactory(factory).predict(REGISTRY, TIMELOCK, p.deployment, IArbitrator(KLEROS),
+            HostProfiles.Profile.Classic, config());
         require(p.wrapper.code.length == 0, "predicted wrapper address is taken");
         p.extra = registry.arbitratorExtraData();
         p.cost = IArbitrator(KLEROS).arbitrationCost(p.extra);
@@ -183,8 +182,9 @@ contract AgentSkillsPilotScript {
         require(timelock.getTimestamp(id) == 0, "operation already scheduled or done");
 
         _log(string.concat("Agent Skills Registry -> Intendment wrapper, Gnosis block ", VM.toString(block.number)));
-        _log(string.concat("factory ", VM.toString(p.factory), ", nonce ", VM.toString(p.factoryNonce)));
-        _log(string.concat("wrapper ", VM.toString(p.wrapper), " = CREATE(factory, nonce)"));
+        _log(string.concat("factory ", VM.toString(p.factory), ", registry deployment ", VM.toString(p.deployment)));
+        _log(string.concat("wrapper ", VM.toString(p.wrapper), " = factory.predict(registry, timelock, ",
+            VM.toString(p.deployment), ", Kleros, Classic, config)"));
         _log(string.concat("court fee ", VM.toString(p.cost), " wei; maxCost ", VM.toString(p.maxCost),
             "; reserve ", VM.toString(p.reserve)));
         _log(string.concat("extra data ", VM.toString(p.extra)));

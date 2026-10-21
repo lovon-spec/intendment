@@ -19,7 +19,10 @@ case funding, pro-rata lazy refunds, concession, forwarding, quote/create failur
 forward-first emergency lapse, host-only appeal, ruling relay, pull credits,
 retirement, announced principal withdrawal and same-factory surplus migration.
 Factory deployment requires the host's current governor and creates an ordinary
-contract, not a proxy. Stage-1b offers are not included; `concede(id,maxShare)` keeps
+contract, not a proxy. It uses CREATE2 salted by host, governor and a per-host counter
+that only `deploy` advances; `predict` gives the address in advance, so a timelock can
+schedule calls to its wrapper before it exists and nobody else can take that address.
+Stage-1b offers are not included; `concede(id,maxShare)` keeps
 the future-compatible argument but the only share available in stage 1a is zero.
 
 ## Review the host boundary first
