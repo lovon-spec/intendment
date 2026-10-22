@@ -31,3 +31,8 @@ jobs:
         run: |
           set -euo pipefail
           forge test --match-path 'contracts/test/fork/GnosisStage1a.t.sol' -vvv
+      - name: Rehearse the Agent Skills Registry pilot through the real Safe and timelock at block 48859000
+        shell: bash
+        run: |
+          set -euo pipefail
+          forge test --match-path 'contracts/test/fork/AgentSkillsPilot.t.sol' -vvv
