@@ -13,6 +13,10 @@ No contract-library dependency is needed. Tests use a minimal cheatcode interfac
 and explicit host/resolver fixtures.
 
 Start review at [the implementation note](../docs/stage1a-solidity-implementation.md).
-Do not deploy this slice with real funds. No live-fork or security-audit sign-off
-is claimed. A functional evidence display and live host/resolver validation are
-required before a pilot.
+Status: a pilot deployment. The factory is live on Gnosis at
+`0xc2D5c23316C49a45Fb3b6bb48BA631d464113865`, and the Agent Skills Registry's switch to its
+wrapper is scheduled through the registry's timelock; see the
+[pilot runbook](../docs/pilot-agent-skills-registry.md). The code passed automated security
+reviews and fork tests against the real registry, Curate lists and Kleros on Gnosis, and the
+juror page that follows cases through the wrapper is in the registry's own repository. It has not
+had an external audit.
