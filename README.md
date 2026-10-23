@@ -38,6 +38,12 @@ A prototype plug-in for Polymarket's V2 oracle that skips the UMA vote when a pr
 - `oracle/` the Polymarket V2 oracle module, a prototype that is not audited, with unit tests and Polygon fork tests; CI runs both.
 - `backtest/` the Polymarket dispute backtest behind the oracle design's numbers: the scripts that rebuild it from the chain, the dispute dataset and the reports.
 
+## Polymarket redesign — draft
+
+[RFC 002: Parallel-backed resolution and cheaper concessions](docs/rfc-002-polymarket-parallel-resolution.md) proposes finite candidate outcomes with independent backers, fixed resolution epochs, and one authoritative oracle decision when needed. A concession withdraws only the caller's position; it cannot erase someone else's backing or restart their clock.
+
+The RFC reopens the fee-saving design and records the remaining funding, reward and integration questions. It is not part of the v0.9 baseline and has no Polymarket-specific implementation or validation attached. The [earlier insertion study](docs/oracle-insertion-polymarket.md) remains the record of the previous, fee-preserving approach.
+
 ## Related
 
 - kleros/curate-v2 [#110](https://github.com/kleros/curate-v2/pull/110): a hash chain over item status transitions, so a client can verify a list's contents from one storage proof.
